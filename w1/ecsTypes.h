@@ -61,6 +61,7 @@ enum Actions
   EA_MOVE_END,
   EA_ATTACK = EA_MOVE_END,
   EA_RANGED_ATTACK,
+  EA_HEALING,
   EA_NUM
 };
 
@@ -88,6 +89,14 @@ struct RangedDamage
 struct HealAmount
 {
   float amount = 0.f;
+};
+
+struct HealingMagic
+{
+	float amount = 10.f;
+	int healReloadLength = 10;
+	int healReloadCurrent = 0;
+	bool magicActive = false;
 };
 
 struct PowerupAmount

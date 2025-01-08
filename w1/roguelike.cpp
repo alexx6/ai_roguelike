@@ -4,6 +4,15 @@
 #include "stateMachine.h"
 #include "aiLibrary.h"
 
+template<typename T>
+T sqr(T a) { return a * a; }
+
+template<typename T, typename U>
+static float dist_sq(const T& lhs, const U& rhs) { return float(sqr(lhs.x - rhs.x) + sqr(lhs.y - rhs.y)); }
+
+template<typename T, typename U>
+static float dist(const T& lhs, const U& rhs) { return sqrtf(dist_sq(lhs, rhs)); }
+
 static void add_patrol_attack_flee_sm(flecs::entity entity)
 {
   entity.get([](StateMachine &sm)
@@ -66,6 +75,28 @@ static void add_archer_sm(flecs::entity entity)
     });
 }
 
+static void add_healer_sm(flecs::entity entity)
+{
+    entity.get([](StateMachine& sm)
+    {
+        int moveToPlayer = sm.addState(create_move_to_player_state());
+        int moveToPlayerAndHeal = sm.addState(create_move_to_player_and_heal_state());
+        int moveToEnemy = sm.addState(create_move_to_enemy_state());
+
+        //moveToPlayer transitions
+        sm.addTransition(create_and_transition(create_negate_transition(create_player_hitpoints_less_than_transition(40.f)), create_enemy_available_transition(5.f)), moveToPlayer, moveToEnemy);
+        sm.addTransition(create_player_hitpoints_less_than_transition(40.f), moveToPlayer, moveToPlayerAndHeal);
+
+        //moveToEnemy transitions
+        sm.addTransition(create_and_transition(create_negate_transition(create_player_hitpoints_less_than_transition(40.f)), create_negate_transition(create_enemy_available_transition(5.f))), moveToEnemy, moveToPlayer);
+        sm.addTransition(create_player_hitpoints_less_than_transition(40.f), moveToEnemy, moveToPlayerAndHeal);
+
+        //moveToPlayerAndHeal transitions 
+        sm.addTransition(create_and_transition(create_negate_transition(create_player_hitpoints_less_than_transition(40.f)), create_negate_transition(create_enemy_available_transition(5.f))), moveToPlayerAndHeal, moveToPlayer);
+        sm.addTransition(create_and_transition(create_negate_transition(create_player_hitpoints_less_than_transition(40.f)), create_enemy_available_transition(5.f)), moveToPlayerAndHeal, moveToEnemy);
+    });
+}
+
 static flecs::entity create_monster(flecs::world &ecs, int x, int y, Color color)
 {
   return ecs.entity()
@@ -101,7 +132,7 @@ static void create_player(flecs::world &ecs, int x, int y)
   ecs.entity("player")
     .set(Position{x, y})
     .set(MovePos{x, y})
-    .set(Hitpoints{100.f})
+    .set(Hitpoints{10.f})
     .set(GetColor(0xeeeeeeff))
     .set(Action{EA_NOP})
     .add<IsPlayer>()
@@ -109,6 +140,20 @@ static void create_player(flecs::world &ecs, int x, int y)
     .set(PlayerInput{})
     .set(NumActions{2, 0})
     .set(MeleeDamage{50.f});
+}
+
+static flecs::entity create_healer(flecs::world& ecs, int x, int y)
+{
+    return ecs.entity("healer")
+        .set(Position{ x, y })
+        .set(MovePos{ x, y })
+        .set(Hitpoints{ 100.f })
+        .set(GetColor(0xffeeeeff))
+        .set(Action{ EA_NOP })
+        .set(StateMachine{})
+        .set(Team{ 0 })
+        .set(MeleeDamage{ 50.f })
+        .set(HealingMagic{ 10.f, 10, 0 });
 }
 
 static void create_heal(flecs::world &ecs, int x, int y, float amount)
@@ -178,6 +223,7 @@ void init_roguelike(flecs::world &ecs)
   //add_attack_sm(create_monster(ecs, -5, 5, GetColor(0x880000ff)));
 
   add_archer_sm(create_archer(ecs, -5, 5, GetColor(0x00FF00FF)));
+  add_healer_sm(create_healer(ecs, 0, 2));
 
   create_player(ecs, 0, 0);
 
@@ -229,6 +275,7 @@ static void process_actions(flecs::world &ecs)
 {
   static auto processActionsMelee = ecs.query<Action, Position, MovePos, const MeleeDamage, const Team>();
   static auto processActionsRanged = ecs.query<Action, Position, MovePos, const RangedDamage, const Team>();
+  static auto processActionsHealer = ecs.query<Action, Position, MovePos, const MeleeDamage, const Team, HealingMagic>();
   static auto checkAttacks = ecs.query<const MovePos, Hitpoints, const Team>();
   // Process all actions
   ecs.defer([&]
@@ -264,7 +311,7 @@ static void process_actions(flecs::world &ecs)
                     blocked = true;
                 }
 
-                if (team.team != enemy_team.team && a.action == EA_RANGED_ATTACK)
+                if (team.team != enemy_team.team && a.action == EA_RANGED_ATTACK && sqrtf(dist_sq(mpos, epos)) < 5)
                     hp.hitpoints -= dmg.damage;
             }
         });
@@ -273,6 +320,41 @@ static void process_actions(flecs::world &ecs)
             a.action = EA_NOP;
         else
             mpos = nextPos;
+    });
+
+    processActionsHealer.each([&](flecs::entity entity, Action& a, Position& pos, MovePos& mpos, const MeleeDamage& dmg, const Team& team, HealingMagic& healingMagic)
+    {
+        Position nextPos = move_pos(pos, a.action);
+        bool blocked = false;
+        checkAttacks.each([&](flecs::entity enemy, const MovePos& epos, Hitpoints& hp, const Team& enemy_team)
+        {
+            if (entity != enemy && epos == nextPos)
+            {
+                blocked = true;
+                if (team.team != enemy_team.team) {
+                    hp.hitpoints -= dmg.damage;
+                }
+            }
+        });
+        if (blocked)
+            a.action = EA_NOP;
+        else
+            mpos = nextPos;
+
+        healingMagic.healReloadCurrent = healingMagic.healReloadCurrent == 0 ? 0 : healingMagic.healReloadCurrent - 1;
+
+        if (healingMagic.magicActive && healingMagic.healReloadCurrent == 0)
+        {
+            static auto playerQuery = ecs.query<const IsPlayer, const MovePos&, Hitpoints>();
+            playerQuery.each([&](const IsPlayer&, const MovePos& ppos, Hitpoints& hp)
+            {
+                if (std::abs(ppos.x - nextPos.x) + std::abs(ppos.y - nextPos.y) <= 1)
+                {
+                    hp.hitpoints += healingMagic.amount;
+                    healingMagic.healReloadCurrent = healingMagic.healReloadLength;
+                }
+            });
+        }
     });
     // now move
     processActionsMelee.each([&](flecs::entity entity, Action &a, Position &pos, MovePos &mpos, const MeleeDamage &, const Team&)

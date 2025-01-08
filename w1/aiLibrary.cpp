@@ -8,8 +8,8 @@
 class AttackEnemyState : public State
 {
 public:
-  void enter() const override {}
-  void exit() const override {}
+  void enter(float/* dt*/, flecs::world&/*ecs*/, flecs::entity /*entity*/) const override {}
+  void exit(float/* dt*/, flecs::world&/*ecs*/, flecs::entity /*entity*/) const override {}
   void act(float/* dt*/, flecs::world &/*ecs*/, flecs::entity /*entity*/) const override {}
 };
 
@@ -67,11 +67,28 @@ static void on_closest_enemy_pos(flecs::world &ecs, flecs::entity entity, Callab
   });
 }
 
+template<typename Callable>
+static void on_player_pos(flecs::world& ecs, flecs::entity entity, Callable c)
+{
+    static auto playersQuery = ecs.query<const Position, const IsPlayer>();
+    entity.insert([&](const Position& pos, Action& a)
+    {
+        playersQuery.each([&](flecs::entity player, const Position& ppos, const IsPlayer&)
+        {
+            if (ecs.is_valid(player))
+            {
+                c(a, pos, ppos);
+                return;
+            }
+        });
+    });
+}
+
 class MoveToEnemyState : public State
 {
 public:
-  void enter() const override {}
-  void exit() const override {}
+  void enter(float/* dt*/, flecs::world&/*ecs*/, flecs::entity /*entity*/) const override {}
+  void exit(float/* dt*/, flecs::world&/*ecs*/, flecs::entity /*entity*/) const override {}
   void act(float/* dt*/, flecs::world &ecs, flecs::entity entity) const override
   {
     on_closest_enemy_pos(ecs, entity, [&](Action &a, const Position &pos, const Position &enemy_pos)
@@ -81,12 +98,52 @@ public:
   }
 };
 
+class MoveToPlayerState : public State
+{
+public:
+    void enter(float/* dt*/, flecs::world&/*ecs*/, flecs::entity /*entity*/) const override {}
+    void exit(float/* dt*/, flecs::world&/*ecs*/, flecs::entity /*entity*/) const override {}
+    void act(float/* dt*/, flecs::world& ecs, flecs::entity entity) const override
+    {
+        on_player_pos(ecs, entity, [&](Action& a, const Position& pos, const Position& player_pos)
+        {
+            a.action = move_towards(pos, player_pos);
+        });
+    }
+};
+
+class MoveToPlayerAndHealState : public State
+{
+public:
+    void enter(float/* dt*/, flecs::world& ecs, flecs::entity entity) const override
+    {
+        entity.insert([&](HealingMagic& healingMagic)
+        {
+            healingMagic.magicActive = true;
+        });
+    }
+    void exit(float/* dt*/, flecs::world& ecs, flecs::entity entity) const override
+    {
+        entity.insert([&](HealingMagic& healingMagic)
+        {
+            healingMagic.magicActive = false;
+        });
+    }
+    void act(float/* dt*/, flecs::world& ecs, flecs::entity entity) const override
+    {
+        on_player_pos(ecs, entity, [&](Action& a, const Position& pos, const Position& player_pos)
+        {
+            a.action = move_towards(pos, player_pos);
+        });
+    }
+};
+
 class FleeFromEnemyState : public State
 {
 public:
   FleeFromEnemyState() {}
-  void enter() const override {}
-  void exit() const override {}
+  void enter(float/* dt*/, flecs::world&/*ecs*/, flecs::entity /*entity*/) const override {}
+  void exit(float/* dt*/, flecs::world&/*ecs*/, flecs::entity /*entity*/) const override {}
   void act(float/* dt*/, flecs::world &ecs, flecs::entity entity) const override
   {
     on_closest_enemy_pos(ecs, entity, [&](Action &a, const Position &pos, const Position &enemy_pos)
@@ -101,8 +158,8 @@ class PatrolState : public State
   float patrolDist;
 public:
   PatrolState(float dist) : patrolDist(dist) {}
-  void enter() const override {}
-  void exit() const override {}
+  void enter(float/* dt*/, flecs::world&/*ecs*/, flecs::entity /*entity*/) const override {}
+  void exit(float/* dt*/, flecs::world&/*ecs*/, flecs::entity /*entity*/) const override {}
   void act(float/* dt*/, flecs::world &ecs, flecs::entity entity) const override
   {
     entity.insert([&](const Position &pos, const PatrolPos &ppos, Action &a)
@@ -121,8 +178,8 @@ public:
 class NopState : public State
 {
 public:
-    void enter() const override {}
-    void exit() const override {}
+    void enter(float/* dt*/, flecs::world&/*ecs*/, flecs::entity /*entity*/) const override {}
+    void exit(float/* dt*/, flecs::world&/*ecs*/, flecs::entity /*entity*/) const override {}
     void act(float/* dt*/, flecs::world &ecs, flecs::entity entity) const override 
     {
         entity.insert([&](Action& a)
@@ -135,8 +192,8 @@ public:
 class ShootEnemyState : public State
 {
 public:
-    void enter() const override {}
-    void exit() const override {}
+    void enter(float/* dt*/, flecs::world&/*ecs*/, flecs::entity /*entity*/) const override {}
+    void exit(float/* dt*/, flecs::world&/*ecs*/, flecs::entity /*entity*/) const override {}
     void act(float/* dt*/, flecs::world& ecs, flecs::entity entity) const override
     {
         entity.insert([&](Action& a)
@@ -183,6 +240,31 @@ public:
     });
     return hitpointsThresholdReached;
   }
+};
+
+class PlayerHitpointsLessThanTransition : public StateTransition
+{
+    float threshold;
+public:
+    PlayerHitpointsLessThanTransition(float in_thres) : threshold(in_thres) {}
+    bool isAvailable(flecs::world& ecs, flecs::entity entity) const override
+    {
+        bool result = false;
+        static auto playersQuery = ecs.query<const Hitpoints, const IsPlayer>();
+        playersQuery.each([&](flecs::entity player, const Hitpoints& hp, const IsPlayer&)
+        {
+            if (ecs.is_valid(player))
+            {
+                if (hp.hitpoints < threshold) 
+                {
+                    result = true;
+                    return;
+                }
+            }
+        });
+
+        return result;
+    }
 };
 
 class EnemyReachableTransition : public StateTransition
@@ -234,6 +316,21 @@ State *create_attack_enemy_state()
 State *create_move_to_enemy_state()
 {
   return new MoveToEnemyState();
+}
+
+State* create_move_to_player_state()
+{
+    return new MoveToPlayerState();
+}
+
+State* create_move_to_player_and_heal_state()
+{
+    return new MoveToPlayerAndHealState();
+}
+
+StateTransition* create_player_hitpoints_less_than_transition(float thres)
+{
+    return new PlayerHitpointsLessThanTransition(thres);
 }
 
 State *create_flee_from_enemy_state()
