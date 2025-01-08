@@ -121,9 +121,29 @@ public:
 class NopState : public State
 {
 public:
-  void enter() const override {}
-  void exit() const override {}
-  void act(float/* dt*/, flecs::world &ecs, flecs::entity entity) const override {}
+    void enter() const override {}
+    void exit() const override {}
+    void act(float/* dt*/, flecs::world &ecs, flecs::entity entity) const override 
+    {
+        entity.insert([&](Action& a)
+        {
+            a.action = EA_NOP;
+        });
+    }
+};
+
+class ShootEnemyState : public State
+{
+public:
+    void enter() const override {}
+    void exit() const override {}
+    void act(float/* dt*/, flecs::world& ecs, flecs::entity entity) const override
+    {
+        entity.insert([&](Action& a)
+        {
+            a.action = EA_RANGED_ATTACK;
+        });
+    }
 };
 
 class EnemyAvailableTransition : public StateTransition
@@ -230,6 +250,11 @@ State *create_patrol_state(float patrol_dist)
 State *create_nop_state()
 {
   return new NopState();
+}
+
+State* create_shoot_enemy_state()
+{
+    return new ShootEnemyState();
 }
 
 // transitions

@@ -44,6 +44,28 @@ static void add_attack_sm(flecs::entity entity)
   });
 }
 
+static void add_archer_sm(flecs::entity entity)
+{
+    entity.get([](StateMachine& sm)
+    {
+        //int patrol = sm.addState(create_patrol_state(3.f));
+        int nopState = sm.addState(create_nop_state());
+        int fleeFromEnemy = sm.addState(create_flee_from_enemy_state());
+        int moveToEnemy = sm.addState(create_move_to_enemy_state());
+        int shootEnemy = sm.addState(create_shoot_enemy_state());
+
+        //nopState transitions
+        sm.addTransition(create_enemy_available_transition(5.f), nopState, shootEnemy);
+
+        //shootEnemy transitions
+        sm.addTransition(create_enemy_available_transition(3.f), shootEnemy, fleeFromEnemy);
+        sm.addTransition(create_negate_transition(create_enemy_available_transition(5.f)), shootEnemy, nopState);
+
+        //fleeFromEnemy transitions
+        sm.addTransition(create_negate_transition(create_enemy_available_transition(7.f)), fleeFromEnemy, nopState);
+    });
+}
+
 static flecs::entity create_monster(flecs::world &ecs, int x, int y, Color color)
 {
   return ecs.entity()
@@ -57,6 +79,21 @@ static flecs::entity create_monster(flecs::world &ecs, int x, int y, Color color
     .set(Team{1})
     .set(NumActions{1, 0})
     .set(MeleeDamage{20.f});
+}
+
+static flecs::entity create_archer(flecs::world& ecs, int x, int y, Color color)
+{
+    return ecs.entity()
+        .set(Position{ x, y })
+        .set(MovePos{ x, y })
+        .set(PatrolPos{ x, y })
+        .set(Hitpoints{ 100.f })
+        .set(Action{ EA_NOP })
+        .set(Color{ color })
+        .set(StateMachine{})
+        .set(Team{ 1 })
+        .set(NumActions{ 1, 0 })
+        .set(RangedDamage{ 20.f });
 }
 
 static void create_player(flecs::world &ecs, int x, int y)
@@ -135,19 +172,21 @@ void init_roguelike(flecs::world &ecs)
 {
   register_roguelike_systems(ecs);
 
-  add_patrol_attack_flee_sm(create_monster(ecs, 5, 5, GetColor(0xee00eeff)));
-  add_patrol_attack_flee_sm(create_monster(ecs, 10, -5, GetColor(0xee00eeff)));
-  add_patrol_flee_sm(create_monster(ecs, -5, -5, GetColor(0x111111ff)));
-  add_attack_sm(create_monster(ecs, -5, 5, GetColor(0x880000ff)));
+  //add_patrol_attack_flee_sm(create_monster(ecs, 5, 5, GetColor(0xee00eeff)));
+  //add_patrol_attack_flee_sm(create_monster(ecs, 10, -5, GetColor(0xee00eeff)));
+  //add_patrol_flee_sm(create_monster(ecs, -5, -5, GetColor(0x111111ff)));
+  //add_attack_sm(create_monster(ecs, -5, 5, GetColor(0x880000ff)));
+
+  add_archer_sm(create_archer(ecs, -5, 5, GetColor(0x00FF00FF)));
 
   create_player(ecs, 0, 0);
 
-  create_powerup(ecs, 7, 7, 10.f);
-  create_powerup(ecs, 10, -6, 10.f);
-  create_powerup(ecs, 10, -4, 10.f);
+  //create_powerup(ecs, 7, 7, 10.f);
+  //create_powerup(ecs, 10, -6, 10.f);
+  //create_powerup(ecs, 10, -4, 10.f);
 
-  create_heal(ecs, -5, -5, 50.f);
-  create_heal(ecs, -5, 5, 50.f);
+  //create_heal(ecs, -5, -5, 50.f);
+  //create_heal(ecs, -5, 5, 50.f);
 }
 
 static bool is_player_acted(flecs::world &ecs)
@@ -188,12 +227,13 @@ static Position move_pos(Position pos, int action)
 
 static void process_actions(flecs::world &ecs)
 {
-  static auto processActions = ecs.query<Action, Position, MovePos, const MeleeDamage, const Team>();
+  static auto processActionsMelee = ecs.query<Action, Position, MovePos, const MeleeDamage, const Team>();
+  static auto processActionsRanged = ecs.query<Action, Position, MovePos, const RangedDamage, const Team>();
   static auto checkAttacks = ecs.query<const MovePos, Hitpoints, const Team>();
   // Process all actions
   ecs.defer([&]
   {
-    processActions.each([&](flecs::entity entity, Action &a, Position &pos, MovePos &mpos, const MeleeDamage &dmg, const Team &team)
+    processActionsMelee.each([&](flecs::entity entity, Action &a, Position &pos, MovePos &mpos, const MeleeDamage &dmg, const Team &team)
     {
       Position nextPos = move_pos(pos, a.action);
       bool blocked = false;
@@ -211,8 +251,37 @@ static void process_actions(flecs::world &ecs)
       else
         mpos = nextPos;
     });
+
+    processActionsRanged.each([&](flecs::entity entity, Action& a, Position& pos, MovePos& mpos, const RangedDamage& dmg, const Team& team)
+    {
+        Position nextPos = move_pos(pos, a.action);
+        bool blocked = false;
+        checkAttacks.each([&](flecs::entity enemy, const MovePos& epos, Hitpoints& hp, const Team& enemy_team)
+        {
+            if (entity != enemy)
+            {
+                if (epos == nextPos) {
+                    blocked = true;
+                }
+
+                if (team.team != enemy_team.team && a.action == EA_RANGED_ATTACK)
+                    hp.hitpoints -= dmg.damage;
+            }
+        });
+
+        if (blocked)
+            a.action = EA_NOP;
+        else
+            mpos = nextPos;
+    });
     // now move
-    processActions.each([&](flecs::entity entity, Action &a, Position &pos, MovePos &mpos, const MeleeDamage &, const Team&)
+    processActionsMelee.each([&](flecs::entity entity, Action &a, Position &pos, MovePos &mpos, const MeleeDamage &, const Team&)
+    {
+      pos = mpos;
+      a.action = EA_NOP;
+    });    
+    
+    processActionsRanged.each([&](flecs::entity entity, Action &a, Position &pos, MovePos &mpos, const RangedDamage &, const Team&)
     {
       pos = mpos;
       a.action = EA_NOP;
