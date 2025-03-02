@@ -11,6 +11,7 @@
 #include "dungeonUtils.h"
 
 const int NUMBER_OF_GENERATIONS = 500;
+const int MAX_AWA_STAR_ITERATIONS = 10;
 
 template<typename T>
 static size_t coord_to_idx(T x, T y, size_t w)
@@ -188,10 +189,136 @@ static std::vector<Position> find_path_a_star(const char *input, size_t width, s
   return std::vector<Position>();
 }
 
+static std::vector<Position> find_path_awa_star(const char* input, size_t width, size_t height, Position from, Position to, float weight)
+{
+    if (from.x < 0 || from.y < 0 || from.x >= int(width) || from.y >= int(height))
+        return std::vector<Position>();
+    size_t inpSize = width * height;
+
+    std::vector<float> g(inpSize, std::numeric_limits<float>::max());
+    std::vector<float> f(inpSize, std::numeric_limits<float>::max());
+    std::vector<float> fw(inpSize, std::numeric_limits<float>::max());
+    std::vector<Position> prev(inpSize, { -1,-1 });
+
+    auto getG = [&](Position p) -> float { return g[coord_to_idx(p.x, p.y, width)]; };
+    auto getF = [&](Position p) -> float { return f[coord_to_idx(p.x, p.y, width)]; };
+    auto getFW = [&](Position p) -> float { return fw[coord_to_idx(p.x, p.y, width)]; };
+
+    g[coord_to_idx(from.x, from.y, width)] = 0;
+    f[coord_to_idx(from.x, from.y, width)] = heuristic(from, to);
+    fw[coord_to_idx(from.x, from.y, width)] = weight * heuristic(from, to);
+
+    std::vector<Position> openList = { from };
+    std::vector<Position> closedList;
+
+    int iterations = 0;
+    
+    bool isIncumbentSet = false;
+    Position incumbent = { 0, 0 };
+
+    while (!openList.empty() && iterations < MAX_AWA_STAR_ITERATIONS)
+    {
+        size_t bestIdx = 0;
+        float bestScore = getFW(openList[0]);
+        for (size_t i = 1; i < openList.size(); ++i)
+        {
+            float score = getFW(openList[i]);
+            if (score < bestScore)
+            {
+                bestIdx = i;
+                bestScore = score;
+            }
+        }
+
+        //if (openList[bestIdx] == to)
+        //    return reconstruct_path(prev, to, width);
+
+        Position curPos = openList[bestIdx];
+        openList.erase(openList.begin() + bestIdx);
+
+        //if (std::find(closedList.begin(), closedList.end(), curPos) != closedList.end())
+        //    continue;
+
+        size_t idx = coord_to_idx(curPos.x, curPos.y, width);
+        const Rectangle rect = { float(curPos.x), float(curPos.y), 1.f, 1.f };
+        DrawRectangleRec(rect, Color{ uint8_t(g[idx]), uint8_t(g[idx]), 0, 100 });
+
+        if (!isIncumbentSet || getF(curPos) < getF(incumbent)) {
+            if(std::find(closedList.begin(), closedList.end(), curPos) == closedList.end())
+                closedList.emplace_back(curPos);
+
+            auto checkNeighbour = [&](Position p)
+            {
+                if (p.x < 0 || p.y < 0 || p.x >= int(width) || p.y >= int(height))
+                    return;
+
+                size_t idx = coord_to_idx(p.x, p.y, width);
+
+                if (input[idx] == '#')
+                    return;
+
+                float edgeWeight = input[idx] == 'o' ? 10.f : 1.f;
+                float gScore = getG(curPos) + 1.f * edgeWeight;
+
+                if (isIncumbentSet && gScore + heuristic(p, to) >= getF(incumbent)) 
+                {
+                    return;
+                }
+
+                auto pItOpen = std::find(openList.begin(), openList.end(), p);
+                auto pItClosed = std::find(closedList.begin(), closedList.end(), p);
+
+                if (p == to) 
+                {
+                    g[idx] = gScore;
+                    f[idx] = g[idx];
+                    prev[idx] = curPos;
+                    ++iterations;
+                    incumbent = p;
+                    isIncumbentSet = true;
+                }
+                else if ((pItOpen != openList.end() || pItClosed != closedList.end()) && getG(p) > gScore)
+                {
+                    g[idx] = gScore;
+                    f[idx] = g[idx] + heuristic(p, to);
+                    fw[idx] = g[idx] + weight * heuristic(p, to);
+                    prev[idx] = curPos;
+
+                    if (pItClosed != closedList.end())
+                    {
+                        if (pItOpen == openList.end())
+                            openList.emplace_back(p);
+
+                        closedList.erase(pItClosed);
+                    }
+                }
+                else if (pItOpen == openList.end() && pItClosed == closedList.end())
+                {
+                    g[idx] = gScore;
+                    f[idx] = g[idx] + heuristic(p, to);
+                    fw[idx] = g[idx] + weight * heuristic(p, to);
+                    prev[idx] = curPos;
+                    openList.emplace_back(p);
+                }
+            };
+
+            checkNeighbour({ curPos.x + 1, curPos.y + 0 });
+            checkNeighbour({ curPos.x - 1, curPos.y + 0 });
+            checkNeighbour({ curPos.x + 0, curPos.y + 1 });
+            checkNeighbour({ curPos.x + 0, curPos.y - 1 });
+        }
+    }
+    
+    
+    // empty path
+    return reconstruct_path(prev, to, width);
+}
+
 void draw_nav_data(const char *input, size_t width, size_t height, Position from, Position to, float weight)
 {
   draw_nav_grid(input, width, height);
-  std::vector<Position> path = find_path_a_star(input, width, height, from, to, weight);
+  std::vector<Position> path = find_path_awa_star(input, width, height, from, to, weight);
+  //std::vector<Position> path = find_path_a_star(input, width, height, from, to, weight);
   //std::vector<Position> path = find_ida_star_path(input, width, height, from, to);
   draw_path(path);
 }
@@ -289,7 +416,7 @@ int main(int /*argc*/, const char ** /*argv*/)
   char *navGrid = new char[dungWidth * dungHeight];
   gen_drunk_dungeon(navGrid, dungWidth, dungHeight, 24, 100);
   spill_drunk_water(navGrid, dungWidth, dungHeight, 8, 10);
-  float weight = 1.f;
+  float weight = 2.f;
 
   Position from = dungeon::find_walkable_tile(navGrid, dungWidth, dungHeight);
   Position to = dungeon::find_walkable_tile(navGrid, dungWidth, dungHeight);
@@ -298,10 +425,10 @@ int main(int /*argc*/, const char ** /*argv*/)
   //camera.offset = Vector2{ width * 0.5f, height * 0.5f };
   camera.zoom = float(height) / float(dungHeight);
 
-  findOptimalWeight(0.99f); //Found weight = 1.225000, optimal in 0.990000% of 500 generaions
-  findOptimalWeight(0.95f, 1.4f); //Found weight = 1.506250, optimal in 0.950000% of 500 generaions
-  findOptimalWeight(0.90f, 1.5f); //Found weight = 1.753125, optimal in 0.900000% of 500 generaions
-  findOptimalWeight(0.75f, 2.5f); //Found weight = 2.540528, optimal in 0.750000% of 500 generaions
+  //findOptimalWeight(0.99f); //Found weight = 1.225000, optimal in 0.990000% of 500 generaions
+  //findOptimalWeight(0.95f, 1.4f); //Found weight = 1.506250, optimal in 0.950000% of 500 generaions
+  //findOptimalWeight(0.90f, 1.5f); //Found weight = 1.753125, optimal in 0.900000% of 500 generaions
+  //findOptimalWeight(0.75f, 2.5f); //Found weight = 2.540528, optimal in 0.750000% of 500 generaions
 
   SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
   while (!WindowShouldClose())
