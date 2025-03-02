@@ -23,6 +23,91 @@ struct CompoundNode : public BehNode
   }
 };
 
+struct NotNode : public BehNode
+{
+    BehNode* node;
+
+    NotNode(BehNode* n) : node(n) {};
+
+    virtual ~NotNode() override 
+    {
+        delete node;
+    }
+
+    virtual BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override 
+    {
+        BehResult behResult = node->update(ecs, entity, bb);
+
+        if (behResult == BEH_SUCCESS)
+        {
+            return BEH_FAIL;
+        }
+        else if (behResult == BEH_FAIL)
+        {
+            return BEH_SUCCESS;
+        }
+        else
+        {
+            return BEH_RUNNING;
+        }
+    }
+};
+
+struct XorNode : public BehNode
+{
+    BehNode* node1;
+    BehNode* node2;
+
+    XorNode(BehNode* n1, BehNode* n2) : node1(n1), node2(n2) {};
+
+    virtual ~XorNode() override
+    {
+        delete node1;
+        delete node2;
+    }
+
+    virtual BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+    {
+        BehResult behResult1 = node1->update(ecs, entity, bb);
+        BehResult behResult2 = node2->update(ecs, entity, bb);
+
+        if (behResult1 == BEH_RUNNING || behResult2 == BEH_RUNNING)
+        {
+            return BEH_RUNNING;
+        }
+
+        return behResult1 == behResult2 ? BEH_FAIL : BEH_SUCCESS;
+    }
+};
+
+struct RepeatNode : public BehNode
+{
+    BehNode* node;
+    size_t iterations;
+
+    RepeatNode(BehNode* n, size_t i) : node(n), iterations(i) {};
+
+    virtual ~RepeatNode() override
+    {
+        delete node;
+    }
+
+    virtual BehResult update(flecs::world& ecs, flecs::entity entity, Blackboard& bb) override
+    {
+        for (int i = 0; i < iterations; ++i)
+        {
+            BehResult behResult = node->update(ecs, entity, bb);
+            
+            if (behResult != BEH_SUCCESS) 
+            {
+                return behResult;
+            }
+        }
+
+        return BEH_SUCCESS;
+    }
+};
+
 struct Sequence : public CompoundNode
 {
   BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
@@ -44,7 +129,7 @@ struct Selector : public CompoundNode
     for (BehNode *node : nodes)
     {
       BehResult res = node->update(ecs, entity, bb);
-      if (res != BEH_FAIL)
+      if (res != BEH_FAIL) 
         return res;
     }
     return BEH_FAIL;
