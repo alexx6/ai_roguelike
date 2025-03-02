@@ -89,8 +89,8 @@ void gen_drunk_dungeon(char *tiles, const size_t w, const size_t h,
     }
   }
 
-  for (size_t y = 0; y < h; ++y)
-    printf("%.*s\n", int(w), tiles + y * w);
+  //for (size_t y = 0; y < h; ++y)
+  //  printf("%.*s\n", int(w), tiles + y * w);
 }
 
 void spill_drunk_water(char *tiles, const size_t w, const size_t h,

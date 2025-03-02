@@ -10,6 +10,8 @@
 #include "dungeonGen.h"
 #include "dungeonUtils.h"
 
+const int NUMBER_OF_GENERATIONS = 500;
+
 template<typename T>
 static size_t coord_to_idx(T x, T y, size_t w)
 {
@@ -194,6 +196,79 @@ void draw_nav_data(const char *input, size_t width, size_t height, Position from
   draw_path(path);
 }
 
+int getPathCost(const char* input, size_t width, std::vector<Position>& path)
+{
+    int result = 0;
+
+    for (int i = 1; i < path.size(); ++i) {
+        result += input[coord_to_idx(path[i].x, path[i].y, width)] == 'o' ? 10 : 1;
+    }
+
+    return result;
+}
+
+
+float getOptimalSolutionsPercentage(float w)
+{
+    int totalOptimalSolutions = 0;
+
+    constexpr size_t dungWidth = 100;
+    constexpr size_t dungHeight = 100;
+    char* navGrid = new char[dungWidth * dungHeight];
+    Position from;
+    Position to;
+
+    for (int i = 0; i < NUMBER_OF_GENERATIONS; ++i)
+    {
+        gen_drunk_dungeon(navGrid, dungWidth, dungHeight, 24, 100);
+        spill_drunk_water(navGrid, dungWidth, dungHeight, 8, 10);
+        from = dungeon::find_walkable_tile(navGrid, dungWidth, dungHeight);
+        to = dungeon::find_walkable_tile(navGrid, dungWidth, dungHeight);
+
+        std::vector<Position> pathWeighed = find_path_a_star(navGrid, dungWidth, dungHeight, from, to, w);
+        std::vector<Position> path = find_path_a_star(navGrid, dungWidth, dungHeight, from, to, 1.0f);
+
+        if (getPathCost(navGrid, dungWidth, path) == getPathCost(navGrid, dungWidth, pathWeighed)) {
+            totalOptimalSolutions += 1;
+        }
+    }
+
+    return totalOptimalSolutions / (float)NUMBER_OF_GENERATIONS;
+}
+
+void findOptimalWeight(float p, float startingWeight = 1.0f)
+{
+    float epsilon = 0.01f * 0.1f;
+    float weight = startingWeight;
+    float optimalPercentage;
+    float delta = 0.1f;
+    float sign = 1.0f;
+
+    do
+    {
+        weight += delta * sign;
+
+        optimalPercentage = getOptimalSolutionsPercentage(weight);
+
+        if (optimalPercentage - p > 0)
+        {
+            if (sign < 0)
+                delta /= 2.0f;
+
+            sign = 1.0f;
+        }
+        else {
+            if (sign > 0)
+                delta /= 2.0f;
+
+            sign = -1.0f;
+        }
+
+    } while (std::abs(optimalPercentage - p) > epsilon);
+
+    printf("Found weight = %f, optimal in %f%% of %d generaions\n", weight, optimalPercentage, NUMBER_OF_GENERATIONS);
+}
+
 int main(int /*argc*/, const char ** /*argv*/)
 {
   int width = 1920;
@@ -222,6 +297,11 @@ int main(int /*argc*/, const char ** /*argv*/)
   Camera2D camera = { {0, 0}, {0, 0}, 0.f, 1.f };
   //camera.offset = Vector2{ width * 0.5f, height * 0.5f };
   camera.zoom = float(height) / float(dungHeight);
+
+  findOptimalWeight(0.99f); //Found weight = 1.225000, optimal in 0.990000% of 500 generaions
+  findOptimalWeight(0.95f, 1.4f); //Found weight = 1.506250, optimal in 0.950000% of 500 generaions
+  findOptimalWeight(0.90f, 1.5f); //Found weight = 1.753125, optimal in 0.900000% of 500 generaions
+  findOptimalWeight(0.75f, 2.5f); //Found weight = 2.540528, optimal in 0.750000% of 500 generaions
 
   SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
   while (!WindowShouldClose())
