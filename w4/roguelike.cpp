@@ -15,6 +15,25 @@ static flecs::entity create_player_approacher(flecs::entity e)
   return e;
 }
 
+static int get_npc_team(flecs::entity e) 
+{
+    int t;
+    e.get([&](const Team& team) { t = team.team; });
+    return t;
+}
+
+static flecs::entity create_npc_approacher(flecs::entity e)
+{
+    e.set(DmapWeights{ {{std::string("approach_map_") + std::to_string(get_npc_team(e)), {1.f, 1.f}}}});
+    return e;
+}
+
+static flecs::entity create_npc_magic_approacher(flecs::entity e)
+{
+    e.set(DmapWeights{ {{std::string("approach_magic_map_") + std::to_string(get_npc_team(e)), {1.f, 1.f}}} });
+    return e;
+}
+
 static flecs::entity create_player_fleer(flecs::entity e)
 {
   e.set(DmapWeights{{{"flee_map", {1.f, 1.f}}}});
@@ -145,6 +164,44 @@ static flecs::entity create_monster(flecs::world &ecs, Color col, const char *te
     .set(Blackboard{});
 }
 
+static flecs::entity create_npc_melee(flecs::world& ecs, Color col, const char* texture_src, int team)
+{
+    Position pos = find_free_dungeon_tile(ecs);
+
+    flecs::entity textureSrc = ecs.entity(texture_src);
+    return ecs.entity()
+        .set(Position{ pos.x, pos.y })
+        .set(MovePos{ pos.x, pos.y })
+        .set(Hitpoints{ 100.f })
+        .set(Action{ EA_NOP })
+        .set(Color{ col })
+        .add<TextureSource>(textureSrc)
+        .set(StateMachine{})
+        .set(Team{ team })
+        .set(NumActions{ 1, 0 })
+        .set(MeleeDamage{ 20.f })
+        .set(Blackboard{});
+}
+
+static flecs::entity create_npc_magic(flecs::world& ecs, Color col, const char* texture_src, int team)
+{
+    Position pos = find_free_dungeon_tile(ecs);
+
+    flecs::entity textureSrc = ecs.entity(texture_src);
+    return ecs.entity()
+        .set(Position{ pos.x, pos.y })
+        .set(MovePos{ pos.x, pos.y })
+        .set(Hitpoints{ 100.f })
+        .set(Action{ EA_NOP })
+        .set(Color{ col })
+        .add<TextureSource>(textureSrc)
+        .set(StateMachine{})
+        .set(Team{ team })
+        .set(NumActions{ 1, 0 })
+        .set(Magic{ 5.0f, 4.0f })
+        .set(Blackboard{});
+}
+
 static void create_player(flecs::world &ecs, const char *texture_src)
 {
   Position pos = find_free_dungeon_tile(ecs);
@@ -153,7 +210,7 @@ static void create_player(flecs::world &ecs, const char *texture_src)
   ecs.entity("player")
     .set(Position{pos.x, pos.y})
     .set(MovePos{pos.x, pos.y})
-    .set(Hitpoints{100.f})
+    .set(Hitpoints{10000000.f})
     //.set(Color{0xee, 0xee, 0xee, 0xff})
     .set(Action{EA_NOP})
     .add<IsPlayer>()
@@ -316,10 +373,37 @@ void init_roguelike(flecs::world &ecs)
         UnloadTexture(texture);
       });
 
-  create_hive_monster(create_monster(ecs, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
-  create_hive_monster(create_monster(ecs, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
-  create_hive_monster(create_monster(ecs, Color{0x11, 0x11, 0x11, 0xff}, "minotaur_tex"));
-  create_hive(create_player_fleer(create_monster(ecs, Color{0, 255, 0, 255}, "minotaur_tex")));
+  //create_hive_monster(create_monster(ecs, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
+  //create_hive_monster(create_monster(ecs, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
+  //create_hive_monster(create_monster(ecs, Color{0x11, 0x11, 0x11, 0xff}, "minotaur_tex"));
+  //create_hive(create_player_fleer(create_monster(ecs, Color{ 0, 255, 0, 255 }, "minotaur_tex")));
+
+
+  create_npc_approacher(create_npc_melee(ecs, Color{ 0xee, 0x00, 0xee, 0xff }, "minotaur_tex", 1));
+  create_npc_approacher(create_npc_melee(ecs, Color{ 0xee, 0x00, 0xee, 0xff }, "minotaur_tex", 1));
+  create_npc_approacher(create_npc_melee(ecs, Color{ 0xee, 0x00, 0xee, 0xff }, "minotaur_tex", 1));
+  create_npc_approacher(create_npc_melee(ecs, Color{ 0xee, 0x00, 0xee, 0xff }, "minotaur_tex", 1));
+  create_npc_approacher(create_npc_melee(ecs, Color{ 0xee, 0x00, 0xee, 0xff }, "minotaur_tex", 1));
+
+  create_npc_magic_approacher(create_npc_magic(ecs, Color{ 0xee, 0x00, 0x00, 0xff }, "minotaur_tex", 1));
+  create_npc_magic_approacher(create_npc_magic(ecs, Color{ 0xee, 0x00, 0x00, 0xff }, "minotaur_tex", 1));
+  create_npc_magic_approacher(create_npc_magic(ecs, Color{ 0xee, 0x00, 0x00, 0xff }, "minotaur_tex", 1));
+  create_npc_magic_approacher(create_npc_magic(ecs, Color{ 0xee, 0x00, 0x00, 0xff }, "minotaur_tex", 1));
+  create_npc_magic_approacher(create_npc_magic(ecs, Color{ 0xee, 0x00, 0x00, 0xff }, "minotaur_tex", 1));
+
+
+  create_npc_approacher(create_npc_melee(ecs, Color{ 0xee, 0xff, 0xee, 0xff }, "minotaur_tex", 2));
+  create_npc_approacher(create_npc_melee(ecs, Color{ 0xee, 0xff, 0xee, 0xff }, "minotaur_tex", 2));
+  create_npc_approacher(create_npc_melee(ecs, Color{ 0xee, 0xff, 0xee, 0xff }, "minotaur_tex", 2));
+  create_npc_approacher(create_npc_melee(ecs, Color{ 0xee, 0xff, 0xee, 0xff }, "minotaur_tex", 2));
+  create_npc_approacher(create_npc_melee(ecs, Color{ 0xee, 0xff, 0xee, 0xff }, "minotaur_tex", 2));
+
+  create_npc_magic_approacher(create_npc_magic(ecs, Color{ 0xee, 0xff, 0x00, 0xff }, "minotaur_tex", 2));
+  create_npc_magic_approacher(create_npc_magic(ecs, Color{ 0xee, 0xff, 0x00, 0xff }, "minotaur_tex", 2));
+  create_npc_magic_approacher(create_npc_magic(ecs, Color{ 0xee, 0xff, 0x00, 0xff }, "minotaur_tex", 2));
+  create_npc_magic_approacher(create_npc_magic(ecs, Color{ 0xee, 0xff, 0x00, 0xff }, "minotaur_tex", 2));
+  create_npc_magic_approacher(create_npc_magic(ecs, Color{ 0xee, 0xff, 0x00, 0xff }, "minotaur_tex", 2));
+
 
   create_player(ecs, "swordsman_tex");
 
@@ -409,6 +493,7 @@ static void push_to_log(flecs::world &ecs, const char *msg)
 static void process_actions(flecs::world &ecs)
 {
   static auto processActions = ecs.query<Action, Position, MovePos, const MeleeDamage, const Team>();
+  static auto processActionsMagic = ecs.query<Action, Position, MovePos, const Magic, const Team>();
   static auto processHeals = ecs.query<Action, Hitpoints>();
   static auto checkAttacks = ecs.query<const MovePos, Hitpoints, const Team>();
   // Process all actions
@@ -444,11 +529,41 @@ static void process_actions(flecs::world &ecs)
       else
         mpos = nextPos;
     });
+
+    processActionsMagic.each([&](flecs::entity entity, Action& a, Position& pos, MovePos& mpos, const Magic& magic, const Team& team)
+    {
+        Position nextPos = move_pos(pos, a.action);
+        bool blocked = !dungeon::is_tile_walkable(ecs, nextPos);
+        checkAttacks.each([&](flecs::entity enemy, const MovePos& epos, Hitpoints& hp, const Team& enemy_team)
+        {
+            if (entity != enemy)
+            {
+                if (epos == nextPos)
+                    blocked = true;
+
+                if (team.team != enemy_team.team && team.team != 0 && dist(pos, epos) <= magic.range)
+                {
+                    push_to_log(ecs, "Magically damaged entity");
+                    hp.hitpoints -= magic.damage;
+                }
+            }
+        });
+        if (blocked)
+            a.action = EA_NOP;
+        else
+            mpos = nextPos;
+    });
     // now move
     processActions.each([&](Action &a, Position &pos, MovePos &mpos, const MeleeDamage &, const Team&)
     {
       pos = mpos;
       a.action = EA_NOP;
+    });
+
+    processActionsMagic.each([&](Action& a, Position& pos, MovePos& mpos, const Magic&, const Team&)
+    {
+        pos = mpos;
+        a.action = EA_NOP;
     });
   });
 
@@ -555,10 +670,25 @@ void process_turn(flecs::world &ecs)
     }
     process_actions(ecs);
 
-    std::vector<float> approachMap;
-    dmaps::gen_player_approach_map(ecs, approachMap);
-    ecs.entity("approach_map")
-      .set(DijkstraMapData{approachMap});
+    std::vector<float> approachMap1;
+    dmaps::gen_npc_approach_map(ecs, approachMap1, 1);
+    ecs.entity("approach_map_1")
+      .set(DijkstraMapData{approachMap1});
+
+    std::vector<float> approachMap2;
+    dmaps::gen_npc_approach_map(ecs, approachMap2, 2);
+    ecs.entity("approach_map_2")
+        .set(DijkstraMapData{ approachMap2 });
+
+    std::vector<float> approachMagicMap1;
+    dmaps::gen_npc_approach_magic_map(ecs, approachMagicMap1, 1);
+    ecs.entity("approach_magic_map_1")
+        .set(DijkstraMapData{ approachMagicMap1 });
+
+    std::vector<float> approachMagicMap2;
+    dmaps::gen_npc_approach_magic_map(ecs, approachMagicMap2, 2);
+    ecs.entity("approach_magic_map_2")
+        .set(DijkstraMapData{ approachMagicMap2 });
 
     std::vector<float> fleeMap;
     dmaps::gen_player_flee_map(ecs, fleeMap);

@@ -80,6 +80,33 @@ void dmaps::gen_player_approach_map(flecs::world &ecs, std::vector<float> &map)
   });
 }
 
+void dmaps::gen_npc_approach_map(flecs::world& ecs, std::vector<float>& map, int team)
+{
+    query_dungeon_data(ecs, [&](const DungeonData& dd)
+    {
+        init_tiles(map, dd);
+        query_characters_positions(ecs, [&](const Position& pos, const Team& t)
+        {
+            if (t.team != team && t.team != 0)
+                map[pos.y * dd.width + pos.x] = 0.f;
+        });
+        process_dmap(map, dd);
+    });
+}
+
+void dmaps::gen_npc_approach_magic_map(flecs::world& ecs, std::vector<float>& map, int team)
+{
+    gen_npc_approach_map(ecs, map, team);
+    for (float& v : map)
+        if (v <= 3)
+            v = invalid_tile_value;
+
+    query_dungeon_data(ecs, [&](const DungeonData& dd)
+    {
+        process_dmap(map, dd);
+    });
+}
+
 void dmaps::gen_player_flee_map(flecs::world &ecs, std::vector<float> &map)
 {
   gen_player_approach_map(ecs, map);
