@@ -34,5 +34,6 @@ add_subdirectory(w6)
 add_subdirectory(w7)
 add_subdirectory(w8)
 add_subdirectory(pathfinding)
+add_subdirectory(examGame)
 
 
