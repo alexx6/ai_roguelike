@@ -222,6 +222,27 @@ static void create_player(flecs::world &ecs, const char *texture_src)
     .set(MeleeDamage{20.f});
 }
 
+static flecs::entity create_auto_player(flecs::world& ecs, const char* texture_src)
+{
+    Position pos = find_free_dungeon_tile(ecs);
+
+    flecs::entity textureSrc = ecs.entity(texture_src);
+    return ecs.entity("player")
+        .set(Position{ pos.x, pos.y })
+        .set(MovePos{ pos.x, pos.y })
+        .set(Hitpoints{ 1000.f })
+        //.set(Color{0xee, 0xee, 0xee, 0xff})
+        .set(Action{ EA_NOP })
+        .add<IsPlayer>()
+        .add<IsAutoExplore>()
+        .set(Team{ 0 })
+        .set(NumActions{ 1, 0 })
+        .set(Color{ 255, 255, 255, 255 })
+        .add<TextureSource>(textureSrc)
+        .set(MeleeDamage{ 20.f })
+        .set(DmapWeights{ {{"exploration_map", {1.f, 1.f}}} });
+}
+
 static void create_heal(flecs::world &ecs, int x, int y, float amount)
 {
   ecs.entity()
@@ -404,8 +425,21 @@ void init_roguelike(flecs::world &ecs)
   create_npc_magic_approacher(create_npc_magic(ecs, Color{ 0xee, 0xff, 0x00, 0xff }, "minotaur_tex", 2));
   create_npc_magic_approacher(create_npc_magic(ecs, Color{ 0xee, 0xff, 0x00, 0xff }, "minotaur_tex", 2));
 
+  size_t w;
+  size_t h;
 
-  create_player(ecs, "swordsman_tex");
+  ecs.query<const DungeonData>().each([&](const DungeonData& dd) {
+      w = dd.width;
+      h = dd.height;
+  });
+
+  std::vector<bool> explorationData;
+  explorationData.resize(w * h, false);
+
+  create_auto_player(ecs, "swordsman_tex")
+      .set(Exploration{ std::move(explorationData) });
+
+  //create_player(ecs, "swordsman_tex");
 
   ecs.entity("world")
     .set(TurnCounter{})
@@ -421,11 +455,12 @@ void init_dungeon(flecs::world &ecs, char *tiles, size_t w, size_t h)
 
   std::vector<char> dungeonData;
   dungeonData.resize(w * h);
+
   for (size_t y = 0; y < h; ++y)
     for (size_t x = 0; x < w; ++x)
       dungeonData[y * w + x] = tiles[y * w + x];
   ecs.entity("dungeon")
-    .set(DungeonData{dungeonData, w, h});
+    .set(DungeonData{ dungeonData, w, h });
 
   for (size_t y = 0; y < h; ++y)
     for (size_t x = 0; x < w; ++x)
@@ -446,10 +481,20 @@ void init_dungeon(flecs::world &ecs, char *tiles, size_t w, size_t h)
 static bool is_player_acted(flecs::world &ecs)
 {
   static auto processPlayer = ecs.query<const IsPlayer, const Action>();
+  static auto processAutoPlayer = ecs.query<const IsAutoExplore>();
+
   bool playerActed = false;
   processPlayer.each([&](const IsPlayer, const Action &a)
   {
     playerActed = a.action != EA_NOP;
+  });
+
+  processAutoPlayer.each([&](const IsAutoExplore)
+  {
+        const int updateCounter = 10;
+        static size_t framesTillUpdate = updateCounter;
+        framesTillUpdate += framesTillUpdate == 0 ? updateCounter : -1;
+        playerActed = !framesTillUpdate;
   });
   return playerActed;
 }
@@ -566,6 +611,13 @@ static void process_actions(flecs::world &ecs)
         a.action = EA_NOP;
     });
   });
+  ecs.query<const DungeonData>().each([&](const DungeonData& dd)
+  {
+    ecs.query<const Position, Exploration, IsAutoExplore>().each([&](const Position& pos, Exploration& exp, IsAutoExplore)
+    {
+        exp.data[pos.y * dd.width + pos.x] = true;
+    });
+  });
 
   static auto deleteAllDead = ecs.query<const Hitpoints>();
   ecs.defer([&]
@@ -666,6 +718,7 @@ void process_turn(flecs::world &ecs)
         });
         process_dmap_followers(ecs);
       });
+
       turnIncrementer.each([](TurnCounter &tc) { tc.count++; });
     }
     process_actions(ecs);
@@ -689,6 +742,11 @@ void process_turn(flecs::world &ecs)
     dmaps::gen_npc_approach_magic_map(ecs, approachMagicMap2, 2);
     ecs.entity("approach_magic_map_2")
         .set(DijkstraMapData{ approachMagicMap2 });
+
+    std::vector<float> explorationMap;
+    dmaps::gen_exploration_map(ecs, explorationMap);
+    ecs.entity("exploration_map")
+        .set(DijkstraMapData{ explorationMap });
 
     std::vector<float> fleeMap;
     dmaps::gen_player_flee_map(ecs, fleeMap);

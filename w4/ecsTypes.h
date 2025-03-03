@@ -124,6 +124,8 @@ struct Symbol
 
 struct IsPlayer {};
 
+struct IsAutoExplore {};
+
 struct WorldInfoGatherer {};
 
 struct Team
@@ -168,6 +170,11 @@ struct DmapWeights
     float pow = 1.f;
   };
   std::unordered_map<std::string, WtData> weights;
+};
+
+struct Exploration
+{
+    std::vector<bool> data;
 };
 
 struct Hive {};

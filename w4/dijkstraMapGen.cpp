@@ -11,6 +11,14 @@ static void query_dungeon_data(flecs::world &ecs, Callable c)
 }
 
 template<typename Callable>
+static void query_exploration_data(flecs::world& ecs, Callable c)
+{
+    static auto explorationDataQuery = ecs.query<const Exploration>();
+
+    explorationDataQuery.each(c);
+}
+
+template<typename Callable>
 static void query_characters_positions(flecs::world &ecs, Callable c)
 {
   static auto characterPositionQuery = ecs.query<const Position, const Team>();
@@ -93,6 +101,25 @@ void dmaps::gen_npc_approach_map(flecs::world& ecs, std::vector<float>& map, int
         process_dmap(map, dd);
     });
 }
+
+void dmaps::gen_exploration_map(flecs::world& ecs, std::vector<float>& map)
+{
+    query_dungeon_data(ecs, [&](const DungeonData& dd)
+    {
+        init_tiles(map, dd);
+        
+        query_exploration_data(ecs, [&](const Exploration& exp)
+        {
+            for (int i = 0; i < exp.data.size(); ++i) {
+                if (!exp.data[i] && dd.tiles[i] != dungeon::wall)
+                    map[i] = 0.0f;
+            }
+        });
+
+        process_dmap(map, dd);
+    });
+}
+
 
 void dmaps::gen_npc_approach_magic_map(flecs::world& ecs, std::vector<float>& map, int team)
 {
