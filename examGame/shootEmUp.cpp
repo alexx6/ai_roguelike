@@ -25,8 +25,28 @@ static void register_roguelike_systems(flecs::world &ecs)
     });
   ecs.system<Position, const Velocity>()
     .each([&](Position &pos, const Velocity &vel)
-    {
-      pos += vel * ecs.delta_time();
+    {      
+      //Simple collision detection
+      Position deltaPosition = vel * ecs.delta_time();
+
+      ecs.query<const DungeonData>().each([&](const DungeonData& dd)
+      {
+        Position anchor = { 30.f, 30.0f };
+        Position testPos = pos + deltaPosition + anchor;
+        Position aPos = pos + anchor;
+
+        if (dd.tiles[(size_t)(aPos.y / tile_size) * dd.width + (size_t)(testPos.x / tile_size)] == dungeon::wall)
+        {
+          deltaPosition.x = 0;
+        }
+
+        if (dd.tiles[(size_t)(testPos.y / tile_size) * dd.width + (size_t)(aPos.x / tile_size)] == dungeon::wall)
+        {
+          deltaPosition.y = 0;
+        }
+      });
+
+      pos += deltaPosition;
     });
   ecs.system<const Position, const Color>()
     .with<TextureSource>(flecs::Wildcard)

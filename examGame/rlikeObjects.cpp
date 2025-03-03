@@ -7,7 +7,7 @@ flecs::entity create_monster(flecs::world &ecs, Position pos, Color col, const c
   return ecs.entity()
     .set(Position{pos.x, pos.y})
     .set(Velocity{0.f, 0.f})
-    .set(MoveSpeed{100.f})
+    .set(MoveSpeed{57.6f})
     .set(Hitpoints{100.f})
     .set(Action{EA_NOP})
     .set(Color{col})
@@ -17,13 +17,19 @@ flecs::entity create_monster(flecs::world &ecs, Position pos, Color col, const c
     .set(MeleeDamage{20.f});
 }
 
+flecs::entity create_spawner(flecs::world& ecs)
+{
+    return ecs.entity()
+        .set(MonsterSpawner{ 3.0f, 3.0f });
+}
+
 void create_player(flecs::world &ecs, Position pos, const char *texture_src)
 {
   flecs::entity textureSrc = ecs.entity(texture_src);
   ecs.entity("player")
     .set(Position{pos.x, pos.y})
     .set(Velocity{0.f, 0.f})
-    .set(MoveSpeed{350.f})
+    .set(MoveSpeed{64.f})
     .set(Hitpoints{100.f})
     .set(Action{EA_NOP})
     .add<IsPlayer>()
