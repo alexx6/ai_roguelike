@@ -112,12 +112,6 @@ struct MeleeDamage
   float weaponLength = 1;
 };
 
-struct AttackTimer
-{
-  float timeToAttack = 0.f;
-  float timeBetweenAttacks = 1.f;
-};
-
 struct HealAmount
 {
   float amount = 0.f;
