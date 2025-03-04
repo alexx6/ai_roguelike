@@ -14,7 +14,8 @@ flecs::entity create_monster(flecs::world &ecs, Position pos, Color col, const c
     .add<TextureSource>(textureSrc)
     .set(Team{1})
     .set(NumActions{1, 0})
-    .set(MeleeDamage{20.f});
+    .set(MeleeDamage{10.f, 2.f})
+    .set(AttackTimer{0.f, 1.f});
 }
 
 flecs::entity create_spawner(flecs::world& ecs)
@@ -38,6 +39,7 @@ void create_player(flecs::world &ecs, Position pos, const char *texture_src)
     .set(NumActions{2, 0})
     .set(Color{255, 255, 255, 255})
     .add<TextureSource>(textureSrc)
-    .set(MeleeDamage{50.f});
+    .set(MeleeDamage{15.f, 3.f})
+    .set(AttackTimer{ 0.f, 1.f });
 }
 

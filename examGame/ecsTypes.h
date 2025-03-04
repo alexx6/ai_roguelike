@@ -109,6 +109,13 @@ struct NumActions
 struct MeleeDamage
 {
   float damage = 2.f;
+  float weaponLength = 1;
+};
+
+struct AttackTimer
+{
+  float timeToAttack = 0.f;
+  float timeBetweenAttacks = 1.f;
 };
 
 struct HealAmount

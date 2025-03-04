@@ -17,7 +17,7 @@ static void update_camera(flecs::world &ecs)
     {
       cam.target.x += (pos.x - cam.target.x) * 0.1f;
       cam.target.y += (pos.y - cam.target.y) * 0.1f;
-      cam.zoom *= (1.f - GetMouseWheelMove() * 0.1);
+      cam.zoom *= (1.f + GetMouseWheelMove() * 0.1);
     });
   });
 }

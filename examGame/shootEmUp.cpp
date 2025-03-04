@@ -98,6 +98,67 @@ static void register_roguelike_systems(flecs::world &ecs)
       });
     });
 
+  //Show entity hp
+  ecs.system<const Position, const Hitpoints>()
+    .each([&](const Position& pos, const Hitpoints& hp)
+    {
+      DrawText(TextFormat("hp: %d", int(hp.hitpoints)), pos.x, pos.y - 12, 18, WHITE);
+    });
+
+  //Calculate timed melee hits from players with attack timer
+  ecs.system<const Position, const MeleeDamage, AttackTimer, const IsPlayer>()
+    .each([&](const Position &pos, const MeleeDamage &md, AttackTimer &at, const IsPlayer)
+    {
+      at.timeToAttack -= ecs.delta_time();
+      if (at.timeToAttack > 0.f)
+        return;
+
+      at.timeToAttack = 0.f;
+
+      //Hit every monster in weapon length radius if ready to attack
+      auto monsterQuery = ecs.query<const Position, Hitpoints, const Team>();
+      monsterQuery.each([&](flecs::entity e, const Position& m_pos, Hitpoints& m_hp, const Team &m_t)
+      {
+        if (m_t.team == 0)
+          return;
+
+        if (length(pos - m_pos) < md.weaponLength * tile_size)
+        {
+          m_hp.hitpoints -= md.damage;
+          at.timeToAttack = at.timeBetweenAttacks;
+          
+          //remove entity if
+          if (m_hp.hitpoints <= 0.f)
+            e.destruct();
+        }
+      });
+    });
+
+  //Calculate timed melee hits from monsters with attack timer
+  ecs.system<const Position, const MeleeDamage, AttackTimer, const Team>()
+    .each([&](const Position& pos, const MeleeDamage& md, AttackTimer& at, const Team &t)
+    {
+      if (t.team == 0)
+        return;
+
+      at.timeToAttack -= ecs.delta_time();
+      if (at.timeToAttack > 0.f)
+        return;
+
+      at.timeToAttack = 0.f;
+
+      //Hit player in weapon length radius if ready to attack
+      auto playerQuery = ecs.query<const Position, Hitpoints, const IsPlayer>();
+      playerQuery.each([&](flecs::entity e, const Position& p_pos, Hitpoints& p_hp, const IsPlayer)
+      {
+        if (length(pos - p_pos) < md.weaponLength * tile_size)
+        {
+          p_hp.hitpoints -= md.damage;
+          at.timeToAttack = at.timeBetweenAttacks;
+        }
+      });
+    });
+
   ecs.system<const DungeonPortals, const DungeonData>()
     .each([&](const DungeonPortals &dp, const DungeonData &dd)
     {
@@ -172,6 +233,7 @@ void init_shoot_em_up(flecs::world &ecs)
 
   const Position walkableTile = dungeon::find_walkable_tile(ecs);
   create_player(ecs, walkableTile * tile_size, "swordsman_tex");
+  create_spawner(ecs);
 }
 
 void init_dungeon(flecs::world &ecs, char *tiles, size_t w, size_t h)
