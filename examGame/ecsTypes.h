@@ -158,6 +158,7 @@ struct ActionLog
 };
 
 struct BackgroundTile {};
+struct ExitTile {};
 
 struct DungeonData
 {

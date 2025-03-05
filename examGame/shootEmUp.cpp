@@ -6,8 +6,27 @@
 #include "dungeonGen.h"
 #include "dungeonUtils.h"
 #include "pathfinder.h"
+#include "dijkstraMapGen.h"
 
 constexpr float tile_size = 64.f;
+
+size_t find_max_valid_index(std::vector<float> map) 
+{
+  float maxValue = 0.f;
+  size_t maxIndex = 0;
+
+  for (size_t i = 0; i < map.size(); ++i)
+  {
+    const float v = map[i];
+    if (v != invalid_tile_value && v > maxValue)
+    {
+      maxValue = v;
+      maxIndex = i;
+    }
+  }
+
+  return maxIndex;
+}
 
 static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLevel, size_t &difficulty)
 {
@@ -54,7 +73,10 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
   {
     ecs.query<const DungeonData>().each([&](const DungeonData& dd)
     {
-      if (dd.tiles[(size_t)(pos.y / tile_size) * dd.width + (size_t)(pos.x / tile_size)] == dungeon::exit)
+      Position anchor = { 30.f, 30.0f };
+      Position aPos = pos + anchor;
+
+      if (dd.tiles[(size_t)(aPos.y / tile_size) * dd.width + (size_t)(aPos.x / tile_size)] == dungeon::exit)
       {
         needToRebuildLevel = true;
         difficulty += 1;
@@ -81,6 +103,13 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
       DrawTextureQuad(*textureSrc.get<Texture2D>(),
           Vector2{1, 1}, Vector2{0, 0},
           Rectangle{float(pos.x), float(pos.y), tile_size, tile_size}, color);
+    });
+
+  ecs.system<const Position, const ExitTile>()
+    .each([&](const Position& pos, const ExitTile)
+    {
+      const Rectangle rect = { pos.x, pos.y, tile_size, tile_size };
+      DrawRectangleRec(rect, Color{ 255, 0, 255, 255 });
     });
 
   ecs.system<Texture2D>()
@@ -232,7 +261,19 @@ void gen_exit_and_spawners(flecs::world& ecs, size_t nSpawners)
       playerPos = pos;
     });
 
-    dd.tiles[(size_t)(playerPos.y / tile_size) * dd.width + (size_t)(playerPos.x / tile_size) + 1] = dungeon::exit;
+    std::vector<float> approachMap;
+    dmaps::gen_player_approach_map(ecs, approachMap);
+    
+    size_t farthestIndex = find_max_valid_index(approachMap);
+
+    size_t x = farthestIndex % dd.width;
+    size_t y = farthestIndex / dd.width;
+
+    dd.tiles[y * dd.width + x] = dungeon::exit;
+
+    ecs.entity()
+      .set<Position>({ x * tile_size, y * tile_size })
+      .add<ExitTile>();
   });
 }
 
@@ -247,7 +288,7 @@ void init_shoot_em_up(flecs::world &ecs, bool& needToRebuildLevel, size_t& diffi
 
   const Position walkableTile = dungeon::find_walkable_tile(ecs);
   create_player(ecs, walkableTile * tile_size, "swordsman_tex");
-  create_spawner(ecs);
+  //create_spawner(ecs);
 }
 
 void init_dungeon(flecs::world &ecs, char *tiles, size_t w, size_t h)

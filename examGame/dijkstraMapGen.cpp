@@ -2,6 +2,8 @@
 #include "ecsTypes.h"
 #include "dungeonUtils.h"
 
+constexpr float tile_size = 64.f;
+
 template<typename Callable>
 static void query_dungeon_data(flecs::world &ecs, Callable c)
 {
@@ -13,12 +15,10 @@ static void query_dungeon_data(flecs::world &ecs, Callable c)
 template<typename Callable>
 static void query_characters_positions(flecs::world &ecs, Callable c)
 {
-  auto characterPositionQuery = ecs.query<const Position, const Team>();
+  auto characterPositionQuery = ecs.query<const Position, const IsPlayer>();
 
   characterPositionQuery.each(c);
 }
-
-constexpr float invalid_tile_value = 1e5f;
 
 static void init_tiles(std::vector<float> &map, const DungeonData &dd)
 {
@@ -71,10 +71,9 @@ void dmaps::gen_player_approach_map(flecs::world &ecs, std::vector<float> &map)
   query_dungeon_data(ecs, [&](const DungeonData &dd)
   {
     init_tiles(map, dd);
-    query_characters_positions(ecs, [&](const Position &pos, const Team &t)
+    query_characters_positions(ecs, [&](const Position &pos, const IsPlayer)
     {
-      if (t.team == 0) // player team hardcode
-        map[pos.y * dd.width + pos.x] = 0.f;
+       map[(size_t)(pos.y / tile_size) * dd.width + (size_t)(pos.x / tile_size)] = 0.f;
     });
     process_dmap(map, dd);
   });

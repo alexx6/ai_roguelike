@@ -2,6 +2,8 @@
 #include <vector>
 #include <flecs.h>
 
+constexpr float invalid_tile_value = 1e5f;
+
 namespace dmaps
 {
   void gen_player_approach_map(flecs::world &ecs, std::vector<float> &map);
