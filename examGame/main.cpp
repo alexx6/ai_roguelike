@@ -6,6 +6,9 @@
 #include "shootEmUp.h"
 #include "dungeonGen.h"
 
+bool needToRebuildLevel = true;
+size_t difficulty = 0;
+
 static void update_camera(flecs::world &ecs)
 {
   auto cameraQuery = ecs.query<Camera2D>();
@@ -20,6 +23,27 @@ static void update_camera(flecs::world &ecs)
       cam.zoom *= (1.f + GetMouseWheelMove() * 0.1);
     });
   });
+}
+
+void buildLevel(flecs::world &ecs, int width, int height)
+{
+  ecs.reset();
+
+  size_t dungWidth = 100 + difficulty * 10;
+  size_t dungHeight = 100 + difficulty * 10;
+  char* tiles = new char[dungWidth * dungHeight];
+  gen_drunk_dungeon(tiles, dungWidth, dungHeight);
+  init_dungeon(ecs, tiles, dungWidth, dungHeight);
+  init_shoot_em_up(ecs, needToRebuildLevel, difficulty);
+  gen_exit_and_spawners(ecs, 3 + difficulty * 2);
+
+  Camera2D camera = { {0, 0}, {0, 0}, 0.f, 1.f };
+  camera.target = Vector2{ 0.f, 0.f };
+  camera.offset = Vector2{ width * 0.5f, height * 0.5f };
+  camera.rotation = 0.f;
+  camera.zoom = 0.5f;
+  ecs.entity("camera")
+    .set(Camera2D{ camera });
 }
 
 
@@ -39,26 +63,16 @@ int main(int /*argc*/, const char ** /*argv*/)
   }
 
   flecs::world ecs;
-  {
-    constexpr size_t dungWidth = 100;
-    constexpr size_t dungHeight = 100;
-    char *tiles = new char[dungWidth * dungHeight];
-    gen_drunk_dungeon(tiles, dungWidth, dungHeight);
-    init_dungeon(ecs, tiles, dungWidth, dungHeight);
-  }
-  init_shoot_em_up(ecs);
-
-  Camera2D camera = { {0, 0}, {0, 0}, 0.f, 1.f };
-  camera.target = Vector2{ 0.f, 0.f };
-  camera.offset = Vector2{ width * 0.5f, height * 0.5f };
-  camera.rotation = 0.f;
-  camera.zoom = 0.5f;
-  ecs.entity("camera")
-    .set(Camera2D{camera});
 
   SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
   while (!WindowShouldClose())
   {
+    if (needToRebuildLevel)
+    {
+      buildLevel(ecs, width, height);
+      needToRebuildLevel = false;
+    }
+
     auto cameraQuery = ecs.query<Camera2D>();
     process_game(ecs);
     update_camera(ecs);

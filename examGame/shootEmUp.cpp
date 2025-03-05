@@ -9,7 +9,7 @@
 
 constexpr float tile_size = 64.f;
 
-static void register_roguelike_systems(flecs::world &ecs)
+static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLevel, size_t &difficulty)
 {
 
   ecs.system<Velocity, const MoveSpeed, const IsPlayer>()
@@ -48,6 +48,20 @@ static void register_roguelike_systems(flecs::world &ecs)
 
       pos += deltaPosition;
     });
+
+  //Check if player on exit tile, then generate new dungeon
+  ecs.system<const Position, const IsPlayer>().each([&](const Position& pos, const IsPlayer)
+  {
+    ecs.query<const DungeonData>().each([&](const DungeonData& dd)
+    {
+      if (dd.tiles[(size_t)(pos.y / tile_size) * dd.width + (size_t)(pos.x / tile_size)] == dungeon::exit)
+      {
+        needToRebuildLevel = true;
+        difficulty += 1;
+      }
+    });
+  });
+
   ecs.system<const Position, const Color>()
     .with<TextureSource>(flecs::Wildcard)
     .with<BackgroundTile>()
@@ -207,10 +221,24 @@ static void register_roguelike_systems(flecs::world &ecs)
   steer::register_systems(ecs);
 }
 
-
-void init_shoot_em_up(flecs::world &ecs)
+void gen_exit_and_spawners(flecs::world& ecs, size_t nSpawners)
 {
-  register_roguelike_systems(ecs);
+  ecs.query<DungeonData>().each([&](DungeonData& dd)
+  {
+    Position playerPos;
+
+    ecs.query<const Position, const IsPlayer>().each([&](const Position& pos, const IsPlayer)
+    {
+      playerPos = pos;
+    });
+
+    dd.tiles[(size_t)(playerPos.y / tile_size) * dd.width + (size_t)(playerPos.x / tile_size) + 1] = dungeon::exit;
+  });
+}
+
+void init_shoot_em_up(flecs::world &ecs, bool& needToRebuildLevel, size_t& difficulty)
+{
+  register_roguelike_systems(ecs, needToRebuildLevel, difficulty);
 
   ecs.entity("swordsman_tex")
     .set(Texture2D{LoadTexture("assets/swordsman.png")});
