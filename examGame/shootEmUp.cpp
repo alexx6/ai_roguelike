@@ -109,8 +109,15 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
     .each([&](const Position& pos, const ExitTile)
     {
       const Rectangle rect = { pos.x, pos.y, tile_size, tile_size };
-      DrawRectangleRec(rect, Color{ 255, 0, 255, 255 });
+      DrawRectangleRec(rect, Color{ 0, 255, 255, 255 });
     });
+
+  ecs.system<const Position, const MonsterSpawner>()
+    .each([&](const Position& pos, const MonsterSpawner)
+      {
+        const Rectangle rect = { pos.x, pos.y, tile_size, tile_size };
+        DrawRectangleRec(rect, Color{ 255, 0, 255, 255 });
+      });
 
   ecs.system<Texture2D>()
     .each([&](Texture2D &tex)
@@ -118,27 +125,22 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
       SetTextureFilter(tex, TEXTURE_FILTER_POINT);
     });
 
-  ecs.system<MonsterSpawner>()
-    .each([&](MonsterSpawner &ms)
+  ecs.system<const Position, MonsterSpawner>()
+    .each([&](const Position &pos, MonsterSpawner &ms)
     {
-      auto playerPosQuery = ecs.query<const Position, const IsPlayer>();
-      playerPosQuery.each([&](const Position &pp, const IsPlayer &)
+      ms.timeToSpawn -= ecs.delta_time();
+      while (ms.timeToSpawn < 0.f)
       {
-        ms.timeToSpawn -= ecs.delta_time();
-        while (ms.timeToSpawn < 0.f)
-        {
-          steer::Type st = steer::Type(GetRandomValue(0, steer::Type::Num - 1));
-          const Color colors[steer::Type::Num] = {WHITE, RED, BLUE, GREEN};
-          const float distances[steer::Type::Num] = {800.f, 800.f, 300.f, 300.f};
-          const float dist = distances[st];
-          constexpr int angRandMax = 1 << 16;
-          const float angle = float(GetRandomValue(0, angRandMax)) / float(angRandMax) * PI * 2.f;
-          Color col = colors[st];
-          steer::create_steer_beh(create_monster(ecs,
-              {pp.x + cosf(angle) * dist, pp.y + sinf(angle) * dist}, col, "minotaur_tex"), st);
-          ms.timeToSpawn += ms.timeBetweenSpawns;
-        }
-      });
+        steer::Type st = steer::Type(GetRandomValue(0, steer::Type::Num - 1));
+        const Color colors[steer::Type::Num] = { WHITE, RED, BLUE, GREEN };
+        const float distances[steer::Type::Num] = { 800.f, 800.f, 300.f, 300.f };
+        const float dist = distances[st];
+        constexpr int angRandMax = 1 << 16;
+        const float angle = float(GetRandomValue(0, angRandMax)) / float(angRandMax) * PI * 2.f;
+        Color col = colors[st];
+        steer::create_steer_beh(create_monster(ecs, pos, col, "minotaur_tex"), st); 
+        ms.timeToSpawn += ms.timeBetweenSpawns;
+      }
     });
 
   //Show entity hp
@@ -148,7 +150,6 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
       DrawText(TextFormat("hp: %d", int(hp.hitpoints)), pos.x, pos.y - 12, 18, WHITE);
     });
 
-  //Calculate timed melee hits from players with attack timer
   ecs.system<const Position, const MeleeDamage, const IsPlayer>()
     .each([&](const Position &pos, const MeleeDamage &md, const IsPlayer)
     {
@@ -163,21 +164,20 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
         {
           m_hp.hitpoints -= md.damage * ecs.delta_time();
 
-          //remove entity if
+          //remove entity if killed
           if (m_hp.hitpoints <= 0.f)
             e.destruct();
         }
       });
     });
 
-  //Calculate timed melee hits from monsters with attack timer
   ecs.system<const Position, const MeleeDamage, const Team>()
     .each([&](const Position& pos, const MeleeDamage& md, const Team &t)
     {
       if (t.team == 0)
         return;
 
-      //Hit player in weapon length radius if ready to attack
+      //Hit player in weapon length radius
       auto playerQuery = ecs.query<const Position, Hitpoints, const IsPlayer>();
       playerQuery.each([&](flecs::entity e, const Position& p_pos, Hitpoints& p_hp, const IsPlayer)
       {
@@ -261,19 +261,40 @@ void gen_exit_and_spawners(flecs::world& ecs, size_t nSpawners)
       playerPos = pos;
     });
 
-    std::vector<float> approachMap;
-    dmaps::gen_player_approach_map(ecs, approachMap);
-    
-    size_t farthestIndex = find_max_valid_index(approachMap);
-
+    //Generate dijkstra map with 0 at player position
+    std::vector<float> map;
+    dmaps::gen_player_approach_map(ecs, map);
+    size_t farthestIndex = find_max_valid_index(map);
     size_t x = farthestIndex % dd.width;
     size_t y = farthestIndex / dd.width;
-
+   
+    //Place exit
     dd.tiles[y * dd.width + x] = dungeon::exit;
 
+    //Place 0 at exit position
+    map[y * dd.width + x] = 0.f;
+
+    //Add exit entity
     ecs.entity()
       .set<Position>({ x * tile_size, y * tile_size })
       .add<ExitTile>();
+
+    //Place spawners
+    for (size_t i = 0; i < nSpawners; ++i)
+    {
+      dmaps::process_dmap(map, dd);
+
+      farthestIndex = find_max_valid_index(map);
+      x = farthestIndex % dd.width;
+      y = farthestIndex / dd.width;
+
+      dd.tiles[y * dd.width + x] = dungeon::spawner;
+      map[y * dd.width + x] = 0.f;
+
+      //Create spawner entity
+      Position spawnerPos { x * tile_size, y * tile_size };
+      create_spawner(ecs, spawnerPos);
+    }
   });
 }
 
@@ -288,7 +309,6 @@ void init_shoot_em_up(flecs::world &ecs, bool& needToRebuildLevel, size_t& diffi
 
   const Position walkableTile = dungeon::find_walkable_tile(ecs);
   create_player(ecs, walkableTile * tile_size, "swordsman_tex");
-  //create_spawner(ecs);
 }
 
 void init_dungeon(flecs::world &ecs, char *tiles, size_t w, size_t h)

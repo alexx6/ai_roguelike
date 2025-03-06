@@ -17,10 +17,11 @@ flecs::entity create_monster(flecs::world &ecs, Position pos, Color col, const c
     .set(MeleeDamage{10.f, 2.f});
 }
 
-flecs::entity create_spawner(flecs::world& ecs)
+flecs::entity create_spawner(flecs::world& ecs, Position &pos)
 {
-    return ecs.entity()
-        .set(MonsterSpawner{ 3.0f, 3.0f });
+  return ecs.entity()
+    .set(Position{ pos.x, pos.y })
+    .set(MonsterSpawner{ 3.0f, 3.0f });
 }
 
 void create_player(flecs::world &ecs, Position pos, const char *texture_src)

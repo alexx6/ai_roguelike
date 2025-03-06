@@ -20,7 +20,7 @@ static void query_characters_positions(flecs::world &ecs, Callable c)
   characterPositionQuery.each(c);
 }
 
-static void init_tiles(std::vector<float> &map, const DungeonData &dd)
+void dmaps::init_tiles(std::vector<float> &map, const DungeonData &dd)
 {
   map.resize(dd.width * dd.height);
   for (float &v : map)
@@ -28,12 +28,12 @@ static void init_tiles(std::vector<float> &map, const DungeonData &dd)
 }
 
 // scan version, could be implemented as Dijkstra version as well
-static void process_dmap(std::vector<float> &map, const DungeonData &dd)
+void dmaps::process_dmap(std::vector<float> &map, const DungeonData &dd)
 {
   bool done = false;
   auto getMapAt = [&](size_t x, size_t y, float def)
   {
-    if (x < dd.width && y < dd.width && dd.tiles[y * dd.width + x] == dungeon::floor)
+    if (x < dd.width && y < dd.width && dd.tiles[y * dd.width + x] != dungeon::wall)
       return map[y * dd.width + x];
     return def;
   };
@@ -53,7 +53,7 @@ static void process_dmap(std::vector<float> &map, const DungeonData &dd)
       for (size_t x = 0; x < dd.width; ++x)
       {
         const size_t i = y * dd.width + x;
-        if (dd.tiles[i] != dungeon::floor)
+        if (dd.tiles[i] == dungeon::wall)
           continue;
         const float myVal = getMapAt(x, y, invalid_tile_value);
         const float minVal = getMinNei(x, y);
