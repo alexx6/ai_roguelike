@@ -73,7 +73,7 @@ void dmaps::gen_player_approach_map(flecs::world &ecs, std::vector<float> &map)
     init_tiles(map, dd);
     query_characters_positions(ecs, [&](const Position &pos, const IsPlayer)
     {
-       map[(size_t)(pos.y / tile_size) * dd.width + (size_t)(pos.x / tile_size)] = 0.f;
+      map[(size_t)(pos.y / tile_size) * dd.width + (size_t)(pos.x / tile_size)] = 0.f;
     });
     process_dmap(map, dd);
   });

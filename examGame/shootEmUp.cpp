@@ -9,6 +9,9 @@
 #include "dijkstraMapGen.h"
 
 constexpr float tile_size = 64.f;
+const Position anchor = { 30.f, 30.0f };
+std::vector<SteerDir> approachFlowMap;
+std::vector<float> ddd;
 
 size_t find_max_valid_index(std::vector<float> map) 
 {
@@ -28,6 +31,82 @@ size_t find_max_valid_index(std::vector<float> map)
   return maxIndex;
 }
 
+std::vector<int> get_reachable_indexes(std::vector<float>& map, size_t tile, size_t width) 
+{
+  std::vector<int> reachableIndexes(9);
+  std::fill(reachableIndexes.begin(), reachableIndexes.end(), -1);
+
+  for (int j = 0; j < 3; ++j)
+  {
+    for (int i = 0; i < 3; ++i)
+    {
+      const int curTile = (i - 1) + (j - 1) * width + tile;
+
+      if (curTile < 0 || curTile >= map.size() || curTile == tile)
+      {
+        continue;
+      }
+
+      if (map[curTile] < invalid_tile_value)
+      {
+        reachableIndexes[j * 3 + i] = curTile;
+      }
+    }
+  }
+
+  if (reachableIndexes[1] == -1 && reachableIndexes[3] == -1)
+    reachableIndexes[0] = -1;
+
+  if (reachableIndexes[1] == -1 && reachableIndexes[5] == -1)
+    reachableIndexes[2] = -1;
+
+  if (reachableIndexes[3] == -1 && reachableIndexes[7] == -1)
+    reachableIndexes[6] = -1;
+
+  if (reachableIndexes[5] == -1 && reachableIndexes[7] == -1)
+    reachableIndexes[8] = -1;
+
+  return reachableIndexes;
+}
+
+void update_player_approach_flowmap(flecs::world& ecs, std::vector<float>& map)
+{
+  approachFlowMap.resize(map.size());
+  std::fill(approachFlowMap.begin(), approachFlowMap.end(), SteerDir());
+
+  size_t mapWidth = 0;
+  ecs.query<const DungeonData>().each([&](const DungeonData& dd)
+  {
+    mapWidth = dd.width;
+  });
+
+  for (size_t i = 0; i < map.size(); ++i) 
+  {
+    std::vector<int> reachableIndexes = get_reachable_indexes(map, i, mapWidth);
+    int bestIndex = 0;
+
+    for (int j = 0; j < 9; ++j)
+    {
+      if (reachableIndexes[j] < 0)
+        continue;
+      
+      if (reachableIndexes[bestIndex] < 0 || map[reachableIndexes[j]] < map[reachableIndexes[bestIndex]])
+        bestIndex = j;
+    }
+
+    approachFlowMap[i] = { float(bestIndex % 3 - 1), float(bestIndex / 3 - 1) };
+  }
+}
+
+void update_maps(flecs::world& ecs)
+{
+  std::vector<float> map;
+  dmaps::gen_player_approach_map(ecs, map);
+  ddd = map;
+
+  update_player_approach_flowmap(ecs, map);
+}
+
 static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLevel, size_t &difficulty)
 {
 
@@ -43,23 +122,21 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
       vel = Velocity{normalize(vel) * ms.speed};
     });
   ecs.system<Position, const Velocity>()
-    .each([&](Position &pos, const Velocity &vel)
+    .each([&](flecs::entity e, Position &pos, const Velocity &vel)
     {      
       //Simple collision detection
       Position deltaPosition = vel * ecs.delta_time();
 
       ecs.query<const DungeonData>().each([&](const DungeonData& dd)
       {
-        Position anchor = { 30.f, 30.0f };
-        Position testPos = pos + deltaPosition + anchor;
-        Position aPos = pos + anchor;
+          Position testPos = pos + deltaPosition;
 
-        if (dd.tiles[(size_t)(aPos.y / tile_size) * dd.width + (size_t)(testPos.x / tile_size)] == dungeon::wall)
+        if (dd.tiles[(size_t)(pos.y / tile_size) * dd.width + (size_t)(testPos.x / tile_size)] == dungeon::wall)
         {
           deltaPosition.x = 0;
         }
 
-        if (dd.tiles[(size_t)(testPos.y / tile_size) * dd.width + (size_t)(aPos.x / tile_size)] == dungeon::wall)
+        if (dd.tiles[(size_t)(testPos.y / tile_size) * dd.width + (size_t)(pos.x / tile_size)] == dungeon::wall)
         {
           deltaPosition.y = 0;
         }
@@ -68,15 +145,26 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
       pos += deltaPosition;
     });
 
+  // flowmap approach
+  ecs.system<SteerDir, const MoveSpeed, const Velocity, const Position, const Team>()
+   .each([&](SteerDir& sd, const MoveSpeed& ms, const Velocity& vel, const Position& p, const Team &t)
+  {
+    if (approachFlowMap.empty() || t.team == 0)
+      return;
+
+    ecs.query<const DungeonData>().each([&](const DungeonData& dd)
+      {
+        sd += SteerDir{ normalize(approachFlowMap[size_t(p.y / tile_size) * dd.width + size_t(p.x / tile_size)]) * ms.speed - vel };
+      });
+    
+  });
+
   //Check if player on exit tile, then generate new dungeon
   ecs.system<const Position, const IsPlayer>().each([&](const Position& pos, const IsPlayer)
   {
     ecs.query<const DungeonData>().each([&](const DungeonData& dd)
     {
-      Position anchor = { 30.f, 30.0f };
-      Position aPos = pos + anchor;
-
-      if (dd.tiles[(size_t)(aPos.y / tile_size) * dd.width + (size_t)(aPos.x / tile_size)] == dungeon::exit)
+      if (dd.tiles[(size_t)(pos.y / tile_size) * dd.width + (size_t)(pos.x / tile_size)] == dungeon::exit)
       {
         needToRebuildLevel = true;
         difficulty += 1;
@@ -102,7 +190,7 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
       const auto textureSrc = e.target<TextureSource>();
       DrawTextureQuad(*textureSrc.get<Texture2D>(),
           Vector2{1, 1}, Vector2{0, 0},
-          Rectangle{float(pos.x), float(pos.y), tile_size, tile_size}, color);
+          Rectangle{float(pos.x - anchor.x), float(pos.y - anchor.y), tile_size, tile_size}, color);
     });
 
   ecs.system<const Position, const ExitTile>()
@@ -125,6 +213,25 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
       SetTextureFilter(tex, TEXTURE_FILTER_POINT);
     });
 
+  //Update maps if player steps on another tile
+  ecs.system<const Position, const IsPlayer>()
+    .each([&](const Position& pos, const IsPlayer)
+    {
+      static Position lastPos = pos;
+
+      if (size_t(lastPos.x / tile_size) != size_t(pos.x / tile_size) || size_t(lastPos.y / tile_size) != size_t(pos.y / tile_size))
+      {
+        update_maps(ecs);
+      }
+
+      //for (int i = 0; i < approachFlowMap.size(); ++i)
+      //{
+      //  DrawText(TextFormat("x: %d, y: %d", int(approachFlowMap[i].x), int(approachFlowMap[i].y)), i % 100 * tile_size + anchor.x, i / 100 * tile_size, 14, WHITE);
+      //}
+
+      lastPos = pos;
+    });
+
   ecs.system<const Position, MonsterSpawner>()
     .each([&](const Position &pos, MonsterSpawner &ms)
     {
@@ -138,7 +245,7 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
         constexpr int angRandMax = 1 << 16;
         const float angle = float(GetRandomValue(0, angRandMax)) / float(angRandMax) * PI * 2.f;
         Color col = colors[st];
-        steer::create_steer_beh(create_monster(ecs, pos, col, "minotaur_tex"), st); 
+        steer::create_steer_beh(create_monster(ecs, pos + anchor, col, "minotaur_tex"), st); 
         ms.timeToSpawn += ms.timeBetweenSpawns;
       }
     });
@@ -147,7 +254,7 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
   ecs.system<const Position, const Hitpoints>()
     .each([&](const Position& pos, const Hitpoints& hp)
     {
-      DrawText(TextFormat("hp: %d", int(hp.hitpoints)), pos.x, pos.y - 12, 18, WHITE);
+      DrawText(TextFormat("hp: %d", int(hp.hitpoints)), pos.x - anchor.x, pos.y - 12 - anchor.y, 18, WHITE);
     });
 
   ecs.system<const Position, const MeleeDamage, const IsPlayer>()
@@ -308,7 +415,7 @@ void init_shoot_em_up(flecs::world &ecs, bool& needToRebuildLevel, size_t& diffi
     .set(Texture2D{LoadTexture("assets/minotaur.png")});
 
   const Position walkableTile = dungeon::find_walkable_tile(ecs);
-  create_player(ecs, walkableTile * tile_size, "swordsman_tex");
+  create_player(ecs, walkableTile * tile_size + anchor, "swordsman_tex");
 }
 
 void init_dungeon(flecs::world &ecs, char *tiles, size_t w, size_t h)

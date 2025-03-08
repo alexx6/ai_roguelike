@@ -36,6 +36,7 @@ void buildLevel(flecs::world &ecs, int width, int height)
   init_dungeon(ecs, tiles, dungWidth, dungHeight);
   init_shoot_em_up(ecs, needToRebuildLevel, difficulty);
   gen_exit_and_spawners(ecs, 3 + difficulty * 2);
+  update_maps(ecs);
 
   Camera2D camera = { {0, 0}, {0, 0}, 0.f, 1.f };
   camera.target = Vector2{ 0.f, 0.f };
