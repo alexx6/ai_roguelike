@@ -14,7 +14,8 @@ flecs::entity create_monster(flecs::world &ecs, Position pos, Color col, const c
     .add<TextureSource>(textureSrc)
     .set(Team{1})
     .set(NumActions{1, 0})
-    .set(MeleeDamage{10.f, 2.f});
+    .set(MeleeDamage{10.f, 2.f})
+    .set(UtilityAction{ACTION_APPROACH});
 }
 
 flecs::entity create_spawner(flecs::world& ecs, Position &pos)
@@ -30,7 +31,7 @@ void create_player(flecs::world &ecs, Position pos, const char *texture_src)
   ecs.entity("player")
     .set(Position{pos.x, pos.y})
     .set(Velocity{0.f, 0.f})
-    .set(MoveSpeed{64.f})
+    .set(MoveSpeed{640.f})
     .set(Hitpoints{100.f})
     .set(Action{EA_NOP})
     .add<IsPlayer>()

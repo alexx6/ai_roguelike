@@ -185,3 +185,14 @@ struct DmapWeights
 };
 
 struct Hive {};
+
+enum UtilityActions
+{
+  ACTION_APPROACH,
+  ACTION_FLEE,
+};
+
+struct UtilityAction
+{
+  UtilityActions action = ACTION_APPROACH;
+};

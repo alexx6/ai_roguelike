@@ -11,7 +11,33 @@
 constexpr float tile_size = 64.f;
 const Position anchor = { 30.f, 30.0f };
 std::vector<SteerDir> approachFlowMap;
-std::vector<float> ddd;
+std::vector<SteerDir> fleeFlowMap;
+
+std::pair<int, UtilityActions> getApproachUtility() {
+  return std::make_pair(50, ACTION_APPROACH);
+}
+
+std::pair<int, UtilityActions> getFleeUtility(float hp, int nearMonsters) {
+  int utilityScore = 100 - hp - nearMonsters * 5;
+
+  return std::make_pair(utilityScore, ACTION_FLEE);
+}
+
+UtilityActions selectUtilityAction(std::vector<std::pair<int, UtilityActions>> utilities) {
+  int maxUtility = 0;
+  int maxUtilityIndex = 0;
+
+  for (size_t i = 0; i < utilities.size(); ++i)
+  {
+    if (utilities[i].first > maxUtility)
+    {
+      maxUtility = utilities[i].first;
+      maxUtilityIndex = i;
+    }
+  }
+
+  return utilities[maxUtilityIndex].second;
+}
 
 size_t find_max_valid_index(std::vector<float> map) 
 {
@@ -98,13 +124,49 @@ void update_player_approach_flowmap(flecs::world& ecs, std::vector<float>& map)
   }
 }
 
+void update_player_flee_flowmap(flecs::world& ecs, std::vector<float>& map)
+{
+  fleeFlowMap.resize(map.size());
+  std::fill(fleeFlowMap.begin(), fleeFlowMap.end(), SteerDir());
+  size_t mapWidth = 0;
+
+  //Flee to the farthest position from player (not necessary away from player at some moments)
+  for (float& v : map)
+    if (v < invalid_tile_value)
+      v *= -1.2f;
+
+  ecs.query<const DungeonData>().each([&](const DungeonData& dd)
+  {
+    mapWidth = dd.width;
+    dmaps::process_dmap(map, dd);
+  });
+  //------------------------------------------------------------
+
+  for (size_t i = 0; i < map.size(); ++i)
+  {
+    std::vector<int> reachableIndexes = get_reachable_indexes(map, i, mapWidth);
+    int bestIndex = 0;
+
+    for (int j = 0; j < 9; ++j)
+    {
+      if (reachableIndexes[j] < 0)
+        continue;
+
+      if (reachableIndexes[bestIndex] < 0 || map[reachableIndexes[j]] < map[reachableIndexes[bestIndex]])
+        bestIndex = j;
+    }
+
+    fleeFlowMap[i] = { float(bestIndex % 3 - 1), float(bestIndex / 3 - 1) };
+  }
+}
+
 void update_maps(flecs::world& ecs)
 {
   std::vector<float> map;
   dmaps::gen_player_approach_map(ecs, map);
-  ddd = map;
 
   update_player_approach_flowmap(ecs, map);
+  update_player_flee_flowmap(ecs, map);
 }
 
 static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLevel, size_t &difficulty)
@@ -144,20 +206,44 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
 
       pos += deltaPosition;
     });
+  
+  ecs.system<const Position, const Hitpoints, const Team, UtilityAction>()
+    .each([&](flecs::entity e, const Position& p, const Hitpoints &hp, const Team& t, UtilityAction &a)
+    {
+      if (t.team == 0)
+        return;
 
-  // flowmap approach
-  ecs.system<SteerDir, const MoveSpeed, const Velocity, const Position, const Team>()
-   .each([&](SteerDir& sd, const MoveSpeed& ms, const Velocity& vel, const Position& p, const Team &t)
-  {
-    if (approachFlowMap.empty() || t.team == 0)
-      return;
+      int nearMonsters = 0;
 
-    ecs.query<const DungeonData>().each([&](const DungeonData& dd)
-      {
-        sd += SteerDir{ normalize(approachFlowMap[size_t(p.y / tile_size) * dd.width + size_t(p.x / tile_size)]) * ms.speed - vel };
-      });
+      ecs.query<const Position, const Team>()
+        .each([&](flecs::entity ne, const Position& np, const Team& t)
+        {
+          if (t.team == 0 || length(p - np) > 3 * tile_size)
+            return;
+
+          ++nearMonsters;
+        });
+
+      a.action = selectUtilityAction({ getApproachUtility(), getFleeUtility(hp.hitpoints, nearMonsters) });
+    });
+
+  // flowmap apply
+  ecs.system<SteerDir, const MoveSpeed, const Velocity, const Position, const Team, const UtilityAction>()
+   .each([&](SteerDir& sd, const MoveSpeed& ms, const Velocity& vel, const Position& p, const Team &t, const UtilityAction &a)
+   {
+     if (t.team == 0)
+       return;
+
+     ecs.query<const DungeonData>().each([&](const DungeonData& dd)
+     {
+       if (a.action == ACTION_APPROACH && !approachFlowMap.empty())
+         sd += SteerDir{ normalize(approachFlowMap[size_t(p.y / tile_size) * dd.width + size_t(p.x / tile_size)]) * ms.speed - vel };
+ 
+       if (a.action == ACTION_FLEE && !fleeFlowMap.empty())
+         sd += SteerDir{ normalize(fleeFlowMap[size_t(p.y / tile_size) * dd.width + size_t(p.x / tile_size)]) * ms.speed - vel };
+     });
     
-  });
+   });
 
   //Check if player on exit tile, then generate new dungeon
   ecs.system<const Position, const IsPlayer>().each([&](const Position& pos, const IsPlayer)

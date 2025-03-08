@@ -98,7 +98,7 @@ void steer::register_systems(flecs::world &ecs)
   //    {
   //      sd += SteerDir{normalize(pp - p) * ms.speed - vel};
   //    });
-  //  });
+  //  });  
 
   //// fleer
   //ecs.system<SteerDir, const MoveSpeed, const Velocity, const Position, const Fleer>()
