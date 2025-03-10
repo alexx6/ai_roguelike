@@ -29,8 +29,8 @@ void buildLevel(flecs::world &ecs, int width, int height)
 {
   ecs.reset();
 
-  size_t dungWidth = 100 + difficulty * 10;
-  size_t dungHeight = 100 + difficulty * 10;
+  size_t dungWidth = 100 + difficulty * 10 * 0;
+  size_t dungHeight = 100 + difficulty * 10 * 0;
   char* tiles = new char[dungWidth * dungHeight];
   gen_drunk_dungeon(tiles, dungWidth, dungHeight);
   init_dungeon(ecs, tiles, dungWidth, dungHeight);

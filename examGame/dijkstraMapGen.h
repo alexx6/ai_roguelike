@@ -12,5 +12,6 @@ namespace dmaps
   void gen_hive_pack_map(flecs::world &ecs, std::vector<float> &map);
   void process_dmap(std::vector<float>& map, const DungeonData& dd);
   void init_tiles(std::vector<float>& map, const DungeonData& dd);
+  void process_dmap_split(std::vector<float>& map, const DungeonData& dd, const size_t split_x, const size_t split_y, const size_t split_width);
 };
 

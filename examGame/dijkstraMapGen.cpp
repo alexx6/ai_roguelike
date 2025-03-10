@@ -66,6 +66,44 @@ void dmaps::process_dmap(std::vector<float> &map, const DungeonData &dd)
   }
 }
 
+void dmaps::process_dmap_split(std::vector<float>& map, const DungeonData& dd, const size_t split_x, const size_t split_y, const size_t tile_split)
+{
+  bool done = false;
+  auto getMapAt = [&](size_t x, size_t y, float def)
+    {
+      if (x < tile_split && y < tile_split && dd.tiles[(tile_split * split_y + y) * dd.width + (tile_split * split_x + x)] != dungeon::wall)
+        return map[y * tile_split + x];
+      return def;
+    };
+  auto getMinNei = [&](size_t x, size_t y)
+    {
+      float val = map[y * tile_split + x];
+      val = std::min(val, getMapAt(x - 1, y + 0, val));
+      val = std::min(val, getMapAt(x + 1, y + 0, val));
+      val = std::min(val, getMapAt(x + 0, y - 1, val));
+      val = std::min(val, getMapAt(x + 0, y + 1, val));
+      return val;
+    };
+  while (!done)
+  {
+    done = true;
+    for (size_t y = 0; y < tile_split; ++y)
+      for (size_t x = 0; x < tile_split; ++x)
+      {
+        const size_t i = (tile_split * split_y + y) * dd.width + (tile_split * split_x + x);
+        if (dd.tiles[i] == dungeon::wall)
+          continue;
+        const float myVal = getMapAt(x, y, invalid_tile_value);
+        const float minVal = getMinNei(x, y);
+        if (minVal < myVal - 1.f)
+        {
+          map[y * tile_split + x] = minVal + 1.f;
+          done = false;
+        }
+      }
+  }
+}
+
 void dmaps::gen_player_approach_map(flecs::world &ecs, std::vector<float> &map)
 {
   query_dungeon_data(ecs, [&](const DungeonData &dd)

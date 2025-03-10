@@ -22,7 +22,7 @@ flecs::entity create_spawner(flecs::world& ecs, Position &pos)
 {
   return ecs.entity()
     .set(Position{ pos.x, pos.y })
-    .set(MonsterSpawner{ 3.0f, 3.0f });
+    .set(MonsterSpawner{ 3.0f, 10.0f });
 }
 
 void create_player(flecs::world &ecs, Position pos, const char *texture_src)
@@ -31,7 +31,7 @@ void create_player(flecs::world &ecs, Position pos, const char *texture_src)
   ecs.entity("player")
     .set(Position{pos.x, pos.y})
     .set(Velocity{0.f, 0.f})
-    .set(MoveSpeed{640.f})
+    .set(MoveSpeed{64.f})
     .set(Hitpoints{100.f})
     .set(Action{EA_NOP})
     .add<IsPlayer>()

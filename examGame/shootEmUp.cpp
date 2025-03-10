@@ -7,11 +7,14 @@
 #include "dungeonUtils.h"
 #include "pathfinder.h"
 #include "dijkstraMapGen.h"
+#include "math.h"
 
 constexpr float tile_size = 64.f;
 const Position anchor = { 30.f, 30.0f };
 std::vector<SteerDir> approachFlowMap;
 std::vector<SteerDir> fleeFlowMap;
+std::vector<size_t> portalPath;
+std::vector<IVec2> localPath;
 
 std::pair<int, UtilityActions> getApproachUtility() {
   return std::make_pair(50, ACTION_APPROACH);
@@ -21,6 +24,30 @@ std::pair<int, UtilityActions> getFleeUtility(float hp, int nearMonsters) {
   int utilityScore = 100 - hp - nearMonsters * 5;
 
   return std::make_pair(utilityScore, ACTION_FLEE);
+}
+
+std::vector<size_t> find_reachable_portals(std::vector<float>&splitMap, const DungeonPortals & dp, const DungeonData & dd, size_t splitIdx, size_t tileSplit)
+{
+  int offset_x = splitIdx % (dd.width / tileSplit) * tileSplit;
+  int offset_y = splitIdx / (dd.height / tileSplit) * tileSplit;
+  std::vector<size_t> reachablePortals;
+
+  for (size_t tilePortalIndex : dp.tilePortalsIndices[splitIdx])
+  {
+    for (int x = dp.portals[tilePortalIndex].startX - offset_x; x <= dp.portals[tilePortalIndex].endX - offset_x; ++x)
+    {
+      for (int y = dp.portals[tilePortalIndex].startY - offset_y; y <= dp.portals[tilePortalIndex].endY - offset_y; ++y)
+      {
+        if (x < 0 || y < 0 || x >= tileSplit || y >= tileSplit)
+          continue;
+
+        if (splitMap[y * tileSplit + x] < invalid_tile_value)
+          reachablePortals.push_back(tilePortalIndex);
+      }
+    }
+  }
+
+  return reachablePortals;
 }
 
 UtilityActions selectUtilityAction(std::vector<std::pair<int, UtilityActions>> utilities) {
@@ -167,6 +194,90 @@ void update_maps(flecs::world& ecs)
 
   update_player_approach_flowmap(ecs, map);
   update_player_flee_flowmap(ecs, map);
+
+  ecs.query<const DungeonPortals, const DungeonData>()
+    .each([&](const DungeonPortals& dp, const DungeonData& dd)
+    {
+      //FROM
+      Position pos;
+      ecs.query<const Position, const IsPlayer>().each([&](const Position& p, const IsPlayer)
+      {
+        pos = p;
+      });
+
+      size_t split_x = size_t(pos.x / tile_size) / dp.tileSplit;
+      size_t split_y = size_t(pos.y / tile_size) / dp.tileSplit;
+
+      std::vector<float> splitMap;
+      splitMap.resize(dp.tileSplit * dp.tileSplit);
+      for (float& v : splitMap)
+        v = invalid_tile_value;
+
+      splitMap[(size_t)(pos.y / tile_size - split_y * dp.tileSplit) * dp.tileSplit + (size_t)(pos.x / tile_size - split_x * dp.tileSplit)] = 0.f;
+      dmaps::process_dmap_split(splitMap, dd, split_x, split_y, dp.tileSplit);
+      std::vector<size_t> reachablePortals = find_reachable_portals(splitMap, dp, dd, split_y * dp.tileSplit + split_x, dp.tileSplit);
+
+      if (reachablePortals.empty())
+      {
+        portalPath.clear();
+        return;
+      }
+
+      size_t from = reachablePortals[0];
+      //--------------------------------------------
+      
+      //TO
+      Position posExit;
+      ecs.query<const Position, const ExitTile>().each([&](const Position& p, const ExitTile)
+        {
+          posExit = p;
+        });
+
+      size_t split_x_exit = size_t(posExit.x / tile_size) / dp.tileSplit;
+      size_t split_y_exit = size_t(posExit.y / tile_size) / dp.tileSplit;
+
+      std::vector<float> splitMapExit;
+      splitMapExit.resize(dp.tileSplit * dp.tileSplit);
+      for (float& v : splitMapExit)
+        v = invalid_tile_value;
+
+      splitMapExit[(size_t)(posExit.y / tile_size - split_y_exit * dp.tileSplit) * dp.tileSplit + (size_t)(posExit.x / tile_size - split_x_exit * dp.tileSplit)] = 0.f;
+      dmaps::process_dmap_split(splitMapExit, dd, split_x_exit, split_y_exit, dp.tileSplit);
+      std::vector<size_t> reachablePortalsExit = find_reachable_portals(splitMapExit, dp, dd, split_y_exit * dp.tileSplit + split_x_exit, dp.tileSplit);
+
+      if (reachablePortalsExit.empty())
+      {
+        portalPath.clear();
+        return;
+      }
+
+      size_t to = reachablePortalsExit[0];
+      //--------------------------------------------
+
+      portalPath = find_path_a_star_portal(dp, dd, from, to);
+
+      //Check if we can remove first portal from path
+      if (portalPath.size() > 1 
+        && (dp.portals[portalPath[1]].endX / dp.tileSplit == split_x && dp.portals[portalPath[1]].endY / dp.tileSplit == split_y
+        ||  dp.portals[portalPath[1]].startX / dp.tileSplit == split_x && dp.portals[portalPath[1]].startY / dp.tileSplit == split_y))
+      {
+        portalPath.erase(portalPath.begin());
+      }
+
+      IVec2 fromI{ int(pos.x / tile_size), int(pos.y / tile_size) };
+      IVec2 limMin{ int(split_x + 0) * dp.tileSplit - 1, int(split_y + 0) * dp.tileSplit - 1 };
+      IVec2 limMax{ int(split_x + 1) * dp.tileSplit + 1, int(split_y + 1) * dp.tileSplit + 1 };
+
+      if (portalPath.size() == 0) 
+      {
+        IVec2 toI{ int(posExit.x / tile_size), int(posExit.y / tile_size) };
+        localPath = find_path_a_star(dd, fromI, toI, limMin, limMax);
+        return;
+      }
+
+      IVec2 toI{ int(dp.portals[portalPath[0]].startX), int(dp.portals[portalPath[0]].startY)};
+      localPath = find_path_a_star(dd, fromI, toI, limMin, limMax);
+    });
 }
 
 static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLevel, size_t &difficulty)
@@ -191,14 +302,14 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
 
       ecs.query<const DungeonData>().each([&](const DungeonData& dd)
       {
-          Position testPos = pos + deltaPosition;
+        Position testPos = pos + deltaPosition;
 
-        if (dd.tiles[(size_t)(pos.y / tile_size) * dd.width + (size_t)(testPos.x / tile_size)] == dungeon::wall)
+        if ((size_t)(testPos.x / tile_size) >= dd.width || dd.tiles[(size_t)(pos.y / tile_size) * dd.width + (size_t)(testPos.x / tile_size)] == dungeon::wall)
         {
           deltaPosition.x = 0;
         }
 
-        if (dd.tiles[(size_t)(testPos.y / tile_size) * dd.width + (size_t)(pos.x / tile_size)] == dungeon::wall)
+        if ((size_t)(testPos.y / tile_size) >= dd.height || dd.tiles[(size_t)(testPos.y / tile_size) * dd.width + (size_t)(pos.x / tile_size)] == dungeon::wall)
         {
           deltaPosition.y = 0;
         }
@@ -308,6 +419,12 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
       if (size_t(lastPos.x / tile_size) != size_t(pos.x / tile_size) || size_t(lastPos.y / tile_size) != size_t(pos.y / tile_size))
       {
         update_maps(ecs);
+      }
+
+      for (IVec2 p : localPath)
+      {
+        const Rectangle rect = { p.x * tile_size, p.y * tile_size, tile_size, tile_size };
+        DrawRectangleRec(rect, Color{ 50, 255, 255, 100 });
       }
 
       //for (int i = 0; i < approachFlowMap.size(); ++i)
@@ -439,6 +556,17 @@ static void register_roguelike_systems(flecs::world &ecs, bool &needToRebuildLev
           }
         }
       });
+
+      if (!portalPath.empty())
+      {
+        for (size_t& p : portalPath)
+        {
+          const Rectangle rect = { dp.portals[p].startX * tile_size, dp.portals[p].startY * tile_size,
+            (dp.portals[p].endX - dp.portals[p].startX + 1) * tile_size,
+            (dp.portals[p].endY - dp.portals[p].startY + 1) * tile_size};
+          DrawRectangleRec(rect, Color{ 0, 100, 255, 150 });
+        }
+      }
     });
   steer::register_systems(ecs);
 }
@@ -493,6 +621,10 @@ void gen_exit_and_spawners(flecs::world& ecs, size_t nSpawners)
 
 void init_shoot_em_up(flecs::world &ecs, bool& needToRebuildLevel, size_t& difficulty)
 {
+  approachFlowMap.clear();
+  fleeFlowMap.clear();
+  portalPath.clear();
+  localPath.clear();
   register_roguelike_systems(ecs, needToRebuildLevel, difficulty);
 
   ecs.entity("swordsman_tex")

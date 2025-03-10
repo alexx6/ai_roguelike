@@ -8,6 +8,25 @@ float heuristic(IVec2 lhs, IVec2 rhs)
   return sqrtf(sqr(float(lhs.x - rhs.x)) + sqr(float(lhs.y - rhs.y)));
 };
 
+float portal_heuristic(const PathPortal &lhs, const PathPortal &rhs)
+{
+  return sqrtf(
+    sqr(std::min(std::abs(int(lhs.startX) - int(rhs.endX)), std::abs(int(lhs.endX) - int(rhs.startX))))
+  + sqr(std::min(std::abs(int(lhs.startY) - int(rhs.endY)), std::abs(int(lhs.endY) - int(rhs.startY)))));
+};
+
+std::vector<size_t> reconstruct_portal_path(std::vector<int> prev, size_t to)
+{
+  size_t curPos = to;
+  std::vector<size_t> res = { curPos };
+  while (prev[curPos] != -1)
+  {
+    curPos = prev[curPos];
+    res.insert(res.begin(), curPos);
+  }
+  return res;
+};
+
 template<typename T>
 static size_t coord_to_idx(T x, T y, size_t w)
 {
@@ -26,7 +45,7 @@ static std::vector<IVec2> reconstruct_path(std::vector<IVec2> prev, IVec2 to, si
   return res;
 }
 
-static std::vector<IVec2> find_path_a_star(const DungeonData &dd, IVec2 from, IVec2 to,
+std::vector<IVec2> find_path_a_star(const DungeonData &dd, IVec2 from, IVec2 to,
                                            IVec2 lim_min, IVec2 lim_max)
 {
   if (from.x < 0 || from.y < 0 || from.x >= int(dd.width) || from.y >= int(dd.height))
@@ -95,6 +114,75 @@ static std::vector<IVec2> find_path_a_star(const DungeonData &dd, IVec2 from, IV
   }
   // empty path
   return std::vector<IVec2>();
+}
+
+std::vector<size_t> find_path_a_star_portal(const DungeonPortals& dp, const DungeonData& dd, size_t from, size_t to)
+{
+  if (from < 0 || from > dp.portals.size() || to < 0 || to > dp.portals.size() || from == to)
+    return std::vector<size_t>();
+
+  size_t inpSize = dp.portals.size();
+
+  std::vector<float> g(inpSize, std::numeric_limits<float>::max());
+  std::vector<float> f(inpSize, std::numeric_limits<float>::max());
+  std::vector<int> prev(inpSize, -1);
+
+  auto getG = [&](size_t p) -> float { return g[p]; };
+  auto getF = [&](size_t p) -> float { return f[p]; };
+
+  g[from] = 0;
+  f[from] = portal_heuristic(dp.portals[from], dp.portals[to]);
+
+  std::vector<size_t> openList = { from };
+  std::vector<size_t> closedList;
+
+  while (!openList.empty())
+  {
+    size_t bestIdx = 0;
+    float bestScore = getF(openList[0]);
+    for (size_t i = 1; i < openList.size(); ++i)
+    {
+      float score = getF(openList[i]);
+      if (score < bestScore)
+      {
+        bestIdx = i;
+        bestScore = score;
+      }
+    }
+    if (openList[bestIdx] == to)
+      return reconstruct_portal_path(prev, to);
+    size_t curPos = openList[bestIdx];
+    openList.erase(openList.begin() + bestIdx);
+    if (std::find(closedList.begin(), closedList.end(), curPos) != closedList.end())
+      continue;
+    //size_t idx = curPos;
+    closedList.emplace_back(curPos);
+    auto checkNeighbour = [&](size_t p)
+      {
+        // out of bounds
+        if (p < 0 || p > dp.portals.size())
+          return;
+
+        float edgeWeight = 1.f;
+        float gScore = getG(curPos) + 1.f * edgeWeight; // we're exactly 1 unit away
+        if (gScore < getG(p))
+        {
+          prev[p] = curPos;
+          g[p] = gScore;
+          f[p] = gScore + portal_heuristic(dp.portals[p], dp.portals[to]);
+        }
+        bool found = std::find(openList.begin(), openList.end(), p) != openList.end();
+        if (!found)
+          openList.emplace_back(p);
+      };
+
+    for (const PortalConnection& conn : dp.portals[curPos].conns)
+    {
+      checkNeighbour(conn.connIdx);
+    }
+  }
+  // empty path
+  return std::vector<size_t>();
 }
 
 
